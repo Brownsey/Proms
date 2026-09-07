@@ -5,3 +5,4 @@ __pycache__/
 
 # Private proxy credentials
 proxies.txt
+rotating_proxies.txt

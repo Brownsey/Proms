@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -7,12 +8,47 @@ from fastapi.testclient import TestClient
 from proms.app import BrowserCloseError, BrowserManager, create_app
 
 
+class FakePage:
+    def __init__(self, browser: "FakeBrowser") -> None:
+        self.browser = browser
+
+    async def goto(self, url: str) -> object:
+        self.browser.page_urls.append(url)
+        if wait := self.browser.navigation_waits.get(url):
+            entered, release = wait
+            entered.set()
+            await release.wait()
+        if url in self.browser.navigation_error_urls:
+            raise RuntimeError(f"Navigation failed: {url}")
+        return object()
+
+    async def text_content(self, selector: str) -> str | None:
+        assert selector == "body"
+        await asyncio.sleep(0)
+        return self.browser.ip_body
+
+
 class FakeBrowser:
-    def __init__(self, *, page_error: bool = False, close_error: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        page_error: bool = False,
+        close_error: str | None = None,
+        ip_body: str | None = None,
+        navigation_error_urls: set[str] | None = None,
+        navigation_waits: dict[str, tuple[asyncio.Event, asyncio.Event]] | None = None,
+        close_wait: tuple[asyncio.Event, asyncio.Event] | None = None,
+        new_page_wait: tuple[asyncio.Event, asyncio.Event] | None = None,
+    ) -> None:
         self.connected = True
         self.closed = False
         self.page_error = page_error
         self.close_error = close_error
+        self.ip_body = ip_body
+        self.navigation_error_urls = navigation_error_urls or set()
+        self.navigation_waits = navigation_waits or {}
+        self.close_wait = close_wait
+        self.new_page_wait = new_page_wait
         self.close_attempts = 0
         self.page_urls: list[str] = []
 
@@ -21,18 +57,28 @@ class FakeBrowser:
 
     async def close(self) -> None:
         self.close_attempts += 1
+        if self.close_wait is not None:
+            entered, release = self.close_wait
+            entered.set()
+            await release.wait()
         if self.close_error == "connected":
             raise RuntimeError("Chromium refused to close")
+        if self.close_error == "cancelled":
+            raise asyncio.CancelledError
         self.connected = False
         self.closed = True
         if self.close_error == "disconnected":
             raise RuntimeError("Chromium disconnected while closing")
 
-    async def new_page(self) -> object:
+    async def new_page(self) -> FakePage:
+        if self.new_page_wait is not None:
+            entered, release = self.new_page_wait
+            entered.set()
+            await release.wait()
         if self.page_error:
             raise RuntimeError("Chromium refused to open a page")
         self.page_urls.append("about:blank")
-        return object()
+        return FakePage(self)
 
 
 class FakeLauncher:
@@ -42,15 +88,30 @@ class FakeLauncher:
         self.fail_on_call: int | None = None
         self.fail_page_on_call: int | None = None
         self.close_errors: dict[int, str] = {}
+        self.ip_bodies: dict[int, str | None] = {}
+        self.navigation_errors: dict[int, set[str]] = {}
+        self.navigation_waits: dict[int, dict[str, tuple[asyncio.Event, asyncio.Event]]] = {}
+        self.close_waits: dict[int, tuple[asyncio.Event, asyncio.Event]] = {}
+        self.launch_waits: dict[int, tuple[asyncio.Event, asyncio.Event]] = {}
+        self.new_page_waits: dict[int, tuple[asyncio.Event, asyncio.Event]] = {}
 
     async def __call__(self, proxy: Mapping[str, str]) -> FakeBrowser:
         call_number = len(self.proxies) + 1
         self.proxies.append(dict(proxy))
+        if wait := self.launch_waits.get(call_number):
+            entered, release = wait
+            entered.set()
+            await release.wait()
         if call_number == self.fail_on_call:
             raise RuntimeError("Chromium refused to start")
         browser = FakeBrowser(
             page_error=call_number == self.fail_page_on_call,
             close_error=self.close_errors.get(call_number),
+            ip_body=self.ip_bodies.get(call_number, f"203.0.113.{call_number}"),
+            navigation_error_urls=self.navigation_errors.get(call_number),
+            navigation_waits=self.navigation_waits.get(call_number),
+            close_wait=self.close_waits.get(call_number),
+            new_page_wait=self.new_page_waits.get(call_number),
         )
         self.browsers.append(browser)
         return browser
