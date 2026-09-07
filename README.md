@@ -1,14 +1,15 @@
 # Proms
 
-Local backend for opening interactive Chromium windows through private proxies.
+A local browser launcher with a hosted control panel. The backend opens interactive Chromium windows through static and rotating proxies; the frontend configures launches without sending proxy values to Vercel.
 
 ## Setup
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 20.9+.
 
 ```powershell
 uv sync --locked
 uv run playwright install chromium
+npm ci
 ```
 
 Create `proxies.txt` for static proxies and `rotating_proxies.txt` for rotating
@@ -25,7 +26,7 @@ socks5://host:port
 
 Both proxy files are git-ignored because they may contain credentials.
 
-## Run
+## Run the local service
 
 ```powershell
 uv run proms
@@ -33,6 +34,22 @@ uv run proms
 
 The API listens on `http://127.0.0.1:8000` so it is not exposed to other
 machines by default.
+
+## Use the control panel
+
+Open [proms-rust.vercel.app](https://proms-rust.vercel.app) in Chrome, Edge, or Firefox, then select **Connect local service** and approve the browser's local-network prompt. The page reads only proxy counts and browser status; proxy addresses and credentials remain in the ignored local files.
+
+Safari cannot currently connect from the hosted HTTPS page to the HTTP loopback service. The API can still be controlled directly, or the frontend can be run locally:
+
+```powershell
+npm run dev
+```
+
+Additional trusted frontend origins can be supplied as a comma-separated list in `PROMS_ALLOWED_ORIGINS`. Requests from other browser origins cannot launch or close windows.
+
+The service also exposes `GET /health` and a secret-safe `GET /configuration` summary.
+
+## API examples
 
 Launch two browser windows per static proxy (legacy request):
 
@@ -82,5 +99,7 @@ browser it launched.
 ## Verify
 
 ```powershell
-uv run --locked verify
+npm run verify
 ```
+
+Backend-only checks remain available as `uv run --locked verify`; frontend-only checks use `npm run verify:frontend`.

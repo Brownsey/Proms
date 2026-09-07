@@ -1,5 +1,6 @@
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+import os
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from ipaddress import ip_address
@@ -10,6 +11,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from playwright.async_api import (
     Playwright,
@@ -20,7 +22,18 @@ from playwright.async_api import (
 )
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from proms.proxies import ProxyFileError, ProxySettings, load_proxies
+from proms.proxies import (
+    ProxyFileError,
+    ProxySettings,
+    count_configured_proxies,
+    load_proxies,
+)
+
+DEFAULT_ALLOWED_ORIGINS = {
+    "https://proms-rust.vercel.app",
+    "http://127.0.0.1:3000",
+    "http://localhost:3000",
+}
 
 
 class Page(Protocol):
@@ -303,8 +316,17 @@ def create_app(
     rotating_proxy_file: Path = Path("rotating_proxies.txt"),
     ip_check_url: str = "https://api64.ipify.org",
     launch_browser: LaunchBrowser | None = None,
+    allowed_origins: Iterable[str] | None = None,
 ) -> FastAPI:
     manager = BrowserManager(launch_browser)
+    origin_allowlist = set(DEFAULT_ALLOWED_ORIGINS)
+    origin_allowlist.update(
+        origin.strip()
+        for origin in os.getenv("PROMS_ALLOWED_ORIGINS", "").split(",")
+        if origin.strip()
+    )
+    if allowed_origins is not None:
+        origin_allowlist.update(origin.strip() for origin in allowed_origins if origin.strip())
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -315,9 +337,38 @@ def create_app(
 
     application = FastAPI(lifespan=lifespan)
 
+    @application.middleware("http")
+    async def reject_untrusted_mutation(request: Request, call_next):
+        origin = request.headers.get("origin")
+        if request.method in {"POST", "DELETE"} and origin and origin not in origin_allowlist:
+            return JSONResponse(status_code=403, content={"detail": "Origin not allowed"})
+        return await call_next(request)
+
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=sorted(origin_allowlist),
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type"],
+    )
+
     @application.exception_handler(RequestValidationError)
     async def validation_error(_: Request, error: RequestValidationError) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": jsonable_encoder(error.errors())})
+
+    @application.get("/health")
+    async def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @application.get("/configuration")
+    async def configuration() -> dict[str, int]:
+        try:
+            return {
+                "static_proxy_count": count_configured_proxies(proxy_file),
+                "rotating_proxy_count": count_configured_proxies(rotating_proxy_file),
+            }
+        except ProxyFileError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @application.post("/browsers")
     async def launch_browsers(request: LaunchRequest) -> dict[str, int]:

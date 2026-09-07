@@ -1,0 +1,14 @@
+proxies.txt
+rotating_proxies.txt
+.env*
+.venv/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+tests/
+test-results/
+playwright-report/
+*.tsbuildinfo
+src/
+pyproject.toml
+uv.lock

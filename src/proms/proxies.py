@@ -79,10 +79,12 @@ def _parse_proxy(value: str, line_number: int) -> ProxySettings:
     return settings
 
 
-def load_proxies(path: Path) -> list[ProxySettings]:
+def _load_proxies(path: Path, *, optional: bool) -> list[ProxySettings]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except FileNotFoundError as error:
+        if optional:
+            return []
         raise ProxyFileError(f"Proxy file not found: {path}") from error
     except OSError as error:
         raise ProxyFileError(f"Unable to read proxy file {path}: {error}") from error
@@ -92,6 +94,14 @@ def load_proxies(path: Path) -> list[ProxySettings]:
         for line_number, line in enumerate(lines, start=1)
         if line.strip() and not line.lstrip().startswith("#")
     ]
-    if not proxies:
+    if not proxies and not optional:
         raise ProxyFileError(f"Proxy file contains no proxies: {path}")
     return proxies
+
+
+def load_proxies(path: Path) -> list[ProxySettings]:
+    return _load_proxies(path, optional=False)
+
+
+def count_configured_proxies(path: Path) -> int:
+    return len(_load_proxies(path, optional=True))

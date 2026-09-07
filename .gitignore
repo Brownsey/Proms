@@ -2,7 +2,14 @@
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+.next/
+node_modules/
+playwright-report/
+test-results/
+.vercel/
+*.tsbuildinfo
 
 # Private proxy credentials
 proxies.txt
 rotating_proxies.txt
+.env*
