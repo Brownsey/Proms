@@ -1,6 +1,6 @@
 # Proms
 
-A local browser launcher with a hosted control panel. The backend opens interactive Chromium windows through static and rotating proxies; the frontend configures launches without sending proxy values to Vercel.
+A local browser launcher with a hosted control panel. The backend opens interactive Chromium windows through static and rotating proxies. The frontend can save proxy lists directly to the local service without sending them to Vercel.
 
 ## Setup
 
@@ -22,7 +22,7 @@ Agents can optionally check the machine prerequisites without installing anythin
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1 -CheckOnly
 ```
 
-Check mode does not replace the full setup command. Proxy credentials must still be added locally by the user; neither the agent nor the hosted website should receive or inspect them. After startup, agents can use the numeric counts from `GET /configuration` to determine whether proxies are configured.
+Check mode does not replace the full setup command. Agents must never read proxy credentials. After startup, agents can use the numeric counts from `GET /configuration` to determine whether proxies are configured; users can add or replace proxy lists through the hosted control panel.
 
 ### Manual setup
 
@@ -57,7 +57,7 @@ machines by default.
 
 ## Use the control panel
 
-Open [proms-rust.vercel.app](https://proms-rust.vercel.app) in Chrome, Edge, or Firefox, then select **Connect local service** and approve the browser's local-network prompt. The page reads only proxy counts and browser status; proxy addresses and credentials remain in the ignored local files.
+Open [proms-rust.vercel.app](https://proms-rust.vercel.app) in Chrome, Edge, or Firefox, then select **Connect local service** and approve the browser's local-network prompt. Use **Local proxy files** to save static or rotating proxy lists on this computer. The page sends those values straight from your browser to `127.0.0.1`; Vercel does not receive them, the page does not persist them, and existing values are never displayed. Saving replaces only the selected ignored local file.
 
 Safari cannot currently connect from the hosted HTTPS page to the HTTP loopback service. The API can still be controlled directly, or the frontend can be run locally:
 
@@ -65,7 +65,7 @@ Safari cannot currently connect from the hosted HTTPS page to the HTTP loopback 
 npm run dev
 ```
 
-Additional trusted frontend origins can be supplied as a comma-separated list in `PROMS_ALLOWED_ORIGINS`. Requests from other browser origins cannot launch or close windows.
+Additional trusted frontend origins can be supplied as a comma-separated list in `PROMS_ALLOWED_ORIGINS`. Requests from other browser origins cannot save proxies, launch windows, or close windows.
 
 The service also exposes `GET /health` and a secret-safe `GET /configuration` summary.
 

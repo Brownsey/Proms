@@ -18,6 +18,9 @@ type Counts = {
   active: number | null;
 };
 
+type ProxyMode = "static" | "rotating";
+type Action = "connect" | "refresh" | "launch" | "close" | "save-static" | "save-rotating";
+
 const defaults: Settings = {
   staticWindows: "1",
   rotatingWindows: "0",
@@ -100,7 +103,8 @@ export default function Dashboard() {
   const [storageReady, setStorageReady] = useState(false);
   const [connection, setConnection] = useState<"disconnected" | "connected">("disconnected");
   const [counts, setCounts] = useState<Counts>({ static: null, rotating: null, active: null });
-  const [action, setAction] = useState<"connect" | "refresh" | "launch" | "close" | null>(null);
+  const [drafts, setDrafts] = useState<Record<ProxyMode, string>>({ static: "", rotating: "" });
+  const [action, setAction] = useState<Action | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -145,8 +149,23 @@ export default function Dashboard() {
     );
   }, [settings.staticWindows, settings.rotatingWindows, settings.rotationAttempts, storageReady]);
 
+  useEffect(() => {
+    if (!drafts.static && !drafts.rotating) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    return () => window.removeEventListener("beforeunload", warnBeforeUnload);
+  }, [drafts.static, drafts.rotating]);
+
   function update(field: keyof Settings, value: string) {
     setSettings((current) => ({ ...current, [field]: value }));
+    setError("");
+  }
+
+  function updateDraft(mode: ProxyMode, value: string) {
+    setDrafts((current) => ({ ...current, [mode]: value }));
     setError("");
   }
 
@@ -239,6 +258,61 @@ export default function Dashboard() {
       setNotice(`Closed ${result.closed} windows.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Close failed.");
+    } finally {
+      setAction(null);
+    }
+  }
+
+  async function saveProxies(mode: ProxyMode) {
+    const draft = drafts[mode];
+    const hasProxy = draft
+      .split(/\r?\n/)
+      .some((line) => line.trim() !== "" && !line.trimStart().startsWith("#"));
+    if (!hasProxy && !window.confirm(`Clear every ${mode} proxy from this computer?`)) return;
+
+    setAction(`save-${mode}`);
+    setError("");
+    setNotice("");
+    try {
+      const result = (await requestJson("/configuration/proxies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode,
+          proxies: draft,
+          ...(!hasProxy ? { confirm_clear: true } : {}),
+        }),
+      })) as { mode?: unknown; count?: unknown };
+      if (
+        result.mode !== mode ||
+        typeof result.count !== "number" ||
+        !Number.isInteger(result.count) ||
+        result.count < 0
+      ) {
+        throw new Error("unexpected save response");
+      }
+      setCounts((current) => ({ ...current, [mode]: result.count as number }));
+      setDrafts((current) => ({ ...current, [mode]: "" }));
+      setNotice(
+        result.count === 0
+          ? `Cleared ${mode} proxies.`
+          : `Saved ${result.count} ${mode} ${result.count === 1 ? "proxy" : "proxies"}.`,
+      );
+    } catch (caught) {
+      const label = mode[0].toUpperCase() + mode.slice(1);
+      if (caught instanceof TypeError) {
+        setConnection("disconnected");
+        setCounts({ static: null, rotating: null, active: null });
+        setError(
+          `${label} proxy list was not saved. Start the local service at ${API_URL}, reconnect, then try again. Draft kept.`,
+        );
+      } else if (caught instanceof Error && caught.message === "unexpected save response") {
+        setError(`${label} proxy list was not saved: unexpected save response. Draft kept.`);
+      } else {
+        setError(
+          `${label} proxy list was not saved. Check each line uses a supported proxy format, then try again. Draft kept.`,
+        );
+      }
     } finally {
       setAction(null);
     }
@@ -385,6 +459,58 @@ export default function Dashboard() {
             </label>
           </fieldset>
 
+          <details className="proxy-files">
+            <summary>
+              <span>Local proxy files</span>
+              <small>Replace static or rotating lists</small>
+            </summary>
+            <div className="proxy-files-body">
+              <p>
+                Save replaces the selected proxy file on this computer. Existing values are never displayed. Drafts go only
+                to the local service at {API_URL} and are never persisted in this browser.
+              </p>
+              <fieldset className="proxy-file-controls" disabled={!connected || busy}>
+                <legend className="visually-hidden">Proxy file drafts</legend>
+                <div className="proxy-editor-grid">
+                  <div className="proxy-editor">
+                    <label htmlFor="static-proxies">Static proxies</label>
+                    <textarea
+                      id="static-proxies"
+                      rows={6}
+                      autoComplete="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      aria-describedby="static-proxies-help"
+                      value={drafts.static}
+                      onChange={(event) => updateDraft("static", event.target.value)}
+                    />
+                    <small id="static-proxies-help">One proxy per line. Blank lines and # comments are ignored.</small>
+                    <button className="save-list-button" type="button" onClick={() => saveProxies("static")}>
+                      {action === "save-static" ? "Saving static…" : "Save static list"}
+                    </button>
+                  </div>
+                  <div className="proxy-editor">
+                    <label htmlFor="rotating-proxies">Rotating proxies</label>
+                    <textarea
+                      id="rotating-proxies"
+                      rows={6}
+                      autoComplete="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      aria-describedby="rotating-proxies-help"
+                      value={drafts.rotating}
+                      onChange={(event) => updateDraft("rotating", event.target.value)}
+                    />
+                    <small id="rotating-proxies-help">One proxy per line. Blank lines and # comments are ignored.</small>
+                    <button className="save-list-button" type="button" onClick={() => saveProxies("rotating")}>
+                      {action === "save-rotating" ? "Saving rotating…" : "Save rotating list"}
+                    </button>
+                  </div>
+                </div>
+              </fieldset>
+            </div>
+          </details>
+
           <div className="action-row">
             <button className="launch-button" type="submit" disabled={!connected || busy}>
               {action === "launch" ? "Launching…" : "Launch windows"}
@@ -401,7 +527,7 @@ export default function Dashboard() {
         </form>
 
         <footer>
-          <p>Settings stay in this browser. Proxy values and service secrets are never stored here.</p>
+          <p>Settings stay in this browser. Proxy values and service secrets are never persisted here.</p>
           <p>Safari does not support this remote-to-local control flow. Use Chrome, Edge, or Firefox.</p>
         </footer>
       </section>

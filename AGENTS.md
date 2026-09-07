@@ -17,8 +17,8 @@ When asked to install, configure, or run Proms:
 3. `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1 -CheckOnly` is an optional, read-only prerequisite diagnostic. It does not prove repository dependencies or Chromium are installed.
 4. Always run the full idempotent setup command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1`. This installs missing `uv` and Node.js LTS through `winget`, restores locked Python/npm dependencies, installs Playwright Chromium, and creates empty ignored proxy files when absent. An OS approval prompt may still require the user.
 5. Start the loopback service with `uv run proms` and confirm `GET http://127.0.0.1:8000/health`.
-6. Read only the numeric counts from `GET /configuration`. If both counts are zero, stop and ask the user to add proxy values locally; never inspect the files or ask them to paste credentials into chat.
-7. Direct the user to `https://proms-rust.vercel.app` and its **Connect local service** button.
+6. Read only the numeric counts from `GET /configuration`. If both counts are zero, direct the user to the control panel's **Local proxy files** section; never inspect the files or ask them to paste credentials into chat.
+7. Direct the user to `https://proms-rust.vercel.app` and its **Connect local service** button. Proxy values entered there travel directly from the browser to the loopback service, not through Vercel.
 8. Run `npm run verify` after repository changes.
 
 The hosted website cannot install or start the local service because browsers cannot launch native programs. Do not claim setup is zero-install.

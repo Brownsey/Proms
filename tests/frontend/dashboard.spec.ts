@@ -46,6 +46,11 @@ test("starts disconnected and explains local-service permission", async ({ page 
   );
   await expect(page.getByText(/browser may ask permission to reach devices on your local network/i)).toBeVisible();
   await expect(page.getByText(/Safari does not support this remote-to-local control flow/i)).toBeVisible();
+  await page.getByText("Local proxy files", { exact: true }).click();
+  await expect(page.getByLabel("Static proxies", { exact: true })).toBeDisabled();
+  await expect(page.getByLabel("Rotating proxies", { exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save static list" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save rotating list" })).toBeDisabled();
   expect(requests.filter((url) => url.startsWith(API))).toEqual([]);
 });
 
@@ -176,6 +181,178 @@ test("disables close when no windows are active", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Close all" })).toBeDisabled();
 });
 
+test("saves static and rotating proxy drafts with exact payloads", async ({ page }) => {
+  await connect(page);
+  const payloads: unknown[] = [];
+  await page.route(`${API}/configuration/proxies`, (route) => {
+    const body = route.request().postDataJSON() as { mode: "static" | "rotating" };
+    payloads.push(body);
+    return route.fulfill({ json: { mode: body.mode, count: body.mode === "static" ? 2 : 1 } });
+  });
+  await page.getByText("Local proxy files", { exact: true }).click();
+
+  await page.getByLabel("Static proxies", { exact: true }).fill("static-one.test:8001\nstatic-two.test:8002");
+  await page.getByRole("button", { name: "Save static list" }).click();
+  await expect(page.getByText("Saved 2 static proxies.")).toBeVisible();
+  await expect(page.getByLabel("Static proxies", { exact: true })).toBeEmpty();
+  await expect(page.getByText("S / 2", { exact: true })).toBeVisible();
+
+  await page.getByLabel("Rotating proxies", { exact: true }).fill("http://rotate-one.test:9001");
+  await page.getByRole("button", { name: "Save rotating list" }).click();
+  await expect(page.getByText("Saved 1 rotating proxy.")).toBeVisible();
+  await expect(page.getByLabel("Rotating proxies", { exact: true })).toBeEmpty();
+  await expect(page.getByText("R / 1", { exact: true })).toBeVisible();
+  expect(payloads).toEqual([
+    { mode: "static", proxies: "static-one.test:8001\nstatic-two.test:8002" },
+    { mode: "rotating", proxies: "http://rotate-one.test:9001" },
+  ]);
+});
+
+test("disables proxy mutations while a save is in flight", async ({ page }) => {
+  await connect(page);
+  let releaseSave: () => void = () => undefined;
+  const saveReleased = new Promise<void>((resolve) => {
+    releaseSave = resolve;
+  });
+  let saveRequests = 0;
+  await page.route(`${API}/configuration/proxies`, async (route) => {
+    saveRequests += 1;
+    await saveReleased;
+    return route.fulfill({ json: { mode: "static", count: 1 } });
+  });
+  await page.getByText("Local proxy files", { exact: true }).click();
+  await page.getByLabel("Static proxies", { exact: true }).fill("single.test:8001");
+
+  await page.getByRole("button", { name: "Save static list" }).click();
+  await expect(page.getByRole("button", { name: "Saving static…" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save rotating list" })).toBeDisabled();
+  await expect.poll(() => saveRequests).toBe(1);
+  releaseSave();
+
+  await expect(page.getByText("Saved 1 static proxy.")).toBeVisible();
+  expect(saveRequests).toBe(1);
+});
+
+test("retains drafts through save failures without reflecting credentials", async ({ page }) => {
+  await connect(page);
+  const draft = "http://tester:fake-secret@invalid.test:9000";
+  let failure: "api" | "malformed" | "offline" = "api";
+  await page.route(`${API}/configuration/proxies`, (route) => {
+    if (failure === "api") {
+      return route.fulfill({ status: 400, json: { detail: `Invalid proxy ${draft}` } });
+    }
+    if (failure === "malformed") {
+      return route.fulfill({ json: { mode: "static", count: "1" } });
+    }
+    return route.abort("connectionrefused");
+  });
+  await page.getByText("Local proxy files", { exact: true }).click();
+  const editor = page.getByLabel("Static proxies", { exact: true });
+  await editor.fill(draft);
+
+  await page.getByRole("button", { name: "Save static list" }).click();
+  const rejected = page.getByRole("alert").filter({ hasText: "Static proxy list was not saved" });
+  await expect(rejected).toBeVisible();
+  await expect(rejected).not.toContainText("fake-secret");
+  await expect(editor).toHaveValue(draft);
+
+  failure = "malformed";
+  await page.getByRole("button", { name: "Save static list" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "unexpected save response" })).toBeVisible();
+  await expect(editor).toHaveValue(draft);
+
+  failure = "offline";
+  await page.getByRole("button", { name: "Save static list" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: /start the local service/i })).toBeVisible();
+  await expect(editor).toHaveValue(draft);
+  await expect(page.getByRole("button", { name: "Connect local service" })).toBeVisible();
+});
+
+test("confirms clearing a comment-only proxy list", async ({ page }) => {
+  await connect(page);
+  let payload: unknown;
+  let saveCalls = 0;
+  await page.route(`${API}/configuration/proxies`, (route) => {
+    saveCalls += 1;
+    payload = route.request().postDataJSON();
+    return route.fulfill({ json: { mode: "static", count: 0 } });
+  });
+  await page.getByText("Local proxy files", { exact: true }).click();
+  const editor = page.getByLabel("Static proxies", { exact: true });
+  await editor.fill("# clear this list");
+
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("button", { name: "Save static list" }).click();
+  expect(saveCalls).toBe(0);
+  await expect(editor).toHaveValue("# clear this list");
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Save static list" }).click();
+  await expect(page.getByText("Cleared static proxies.")).toBeVisible();
+  await expect(editor).toBeEmpty();
+  await expect(page.getByText("S / 0", { exact: true })).toBeVisible();
+  expect(saveCalls).toBe(1);
+  expect(payload).toEqual({ mode: "static", proxies: "# clear this list", confirm_clear: true });
+});
+
+test("does not persist or restore proxy drafts", async ({ page }) => {
+  await connect(page);
+  await page.getByText("Local proxy files", { exact: true }).click();
+  await page.getByLabel("Static proxies", { exact: true }).fill("draft-only.test:8001");
+  await page.getByLabel("Rotating proxies", { exact: true }).fill("rotate-draft.test:9001");
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage }))).not.toMatch(/draft-only|rotate-draft/);
+
+  await page.reload();
+  await page.getByText("Local proxy files", { exact: true }).click();
+  await expect(page.getByLabel("Static proxies", { exact: true })).toBeEmpty();
+  await expect(page.getByLabel("Rotating proxies", { exact: true })).toBeEmpty();
+});
+
+test("warns before unloading only while proxy drafts remain unsaved", async ({ page }) => {
+  await connect(page);
+  await page.route(`${API}/configuration/proxies`, (route) => {
+    const { mode } = route.request().postDataJSON() as { mode: "static" | "rotating" };
+    return route.fulfill({ json: { mode, count: 1 } });
+  });
+  await page.getByText("Local proxy files", { exact: true }).click();
+  const staticEditor = page.getByLabel("Static proxies", { exact: true });
+  const rotatingEditor = page.getByLabel("Rotating proxies", { exact: true });
+  const unloadPrevented = () =>
+    page.evaluate(() => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+
+  expect(await unloadPrevented()).toBe(false);
+  await staticEditor.fill("unsaved-static.test:8001");
+  await rotatingEditor.fill("unsaved-rotating.test:9001");
+  await expect.poll(unloadPrevented).toBe(true);
+
+  await page.getByRole("button", { name: "Save static list" }).click();
+  await expect(staticEditor).toBeEmpty();
+  expect(await unloadPrevented()).toBe(true);
+
+  await page.getByRole("button", { name: "Save rotating list" }).click();
+  await expect(rotatingEditor).toBeEmpty();
+  await expect.poll(unloadPrevented).toBe(false);
+});
+
+test("saves a proxy draft with the keyboard", async ({ page }) => {
+  await connect(page);
+  await page.route(`${API}/configuration/proxies`, (route) =>
+    route.fulfill({ json: { mode: "static", count: 1 } }),
+  );
+  await page.getByText("Local proxy files", { exact: true }).click();
+  await page.getByLabel("Static proxies", { exact: true }).fill("keyboard.test:8001");
+  const save = page.getByRole("button", { name: "Save static list" });
+  await save.focus();
+  await expect(save).toBeFocused();
+  await save.press("Enter");
+
+  await expect(page.getByText("Saved 1 static proxy.")).toBeVisible();
+});
+
 test("rejects invalid launch settings before calling the backend", async ({ page }) => {
   await connect(page);
   let postCalls = 0;
@@ -281,16 +458,20 @@ test("rewrites legacy v1 settings without retaining its target URL", async ({ pa
 test("keeps key actions visible without horizontal overflow on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+  await page.getByText("Local proxy files", { exact: true }).click();
 
   await expect(page.getByRole("button", { name: "Connect local service" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Launch windows" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Close all" })).toBeVisible();
+  await expect(page.getByLabel("Static proxies", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Rotating proxies", { exact: true })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBe(0);
 });
 
 test("has no automatically detectable accessibility violations", async ({ page }) => {
   await connect(page);
+  await page.getByText("Local proxy files", { exact: true }).click();
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations).toEqual([]);
 });

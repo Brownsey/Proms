@@ -30,13 +30,17 @@ class FakeBrowser:
 
 
 async def launch_browser(proxy: Mapping[str, str]) -> FakeBrowser:
-    assert proxy == {"server": "http://127.0.0.1:9000"}
+    assert proxy["server"] in {
+        "http://initial.test:9000",
+        "http://first.test:9001",
+        "http://second.test:9002",
+    }
     return FakeBrowser()
 
 
 runtime_directory = TemporaryDirectory(prefix="proms-frontend-test-")
 static_proxy_file = Path(runtime_directory.name) / "static.txt"
-static_proxy_file.write_text("127.0.0.1:9000\n", encoding="utf-8")
+static_proxy_file.write_text("initial.test:9000\n", encoding="utf-8")
 
 app = create_app(
     proxy_file=static_proxy_file,

@@ -10,12 +10,18 @@ test("controls the isolated FastAPI browser service end to end", async ({ page }
   await expect(page.getByText("R / 0", { exact: true })).toBeVisible();
   await expect(page.getByText("0 active", { exact: true })).toBeVisible();
 
+  await page.getByText("Local proxy files", { exact: true }).click();
+  await page.getByLabel("Static proxies", { exact: true }).fill("first.test:9001\nsecond.test:9002");
+  await page.getByRole("button", { name: "Save static list" }).click();
+  await expect(page.getByText("Saved 2 static proxies.")).toBeVisible();
+  await expect(page.getByText("S / 2", { exact: true })).toBeVisible();
+
   await page.getByRole("button", { name: "Launch windows" }).click();
-  await expect(page.getByText("Launched 1 windows. 1 active.")).toBeVisible();
-  await expect(page.getByText("1 active", { exact: true })).toBeVisible();
+  await expect(page.getByText("Launched 2 windows. 2 active.")).toBeVisible();
+  await expect(page.getByText("2 active", { exact: true })).toBeVisible();
 
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: "Close all" }).click();
-  await expect(page.getByText("Closed 1 windows.")).toBeVisible();
+  await expect(page.getByText("Closed 2 windows.")).toBeVisible();
   await expect(page.getByText("0 active", { exact: true })).toBeVisible();
 });

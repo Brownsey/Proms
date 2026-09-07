@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import asynccontextmanager
@@ -27,6 +28,8 @@ from proms.proxies import (
     ProxySettings,
     count_configured_proxies,
     load_proxies,
+    parse_proxy_text,
+    replace_proxy_file,
 )
 
 DEFAULT_ALLOWED_ORIGINS = {
@@ -34,6 +37,7 @@ DEFAULT_ALLOWED_ORIGINS = {
     "http://127.0.0.1:3000",
     "http://localhost:3000",
 }
+MAX_PROXY_REQUEST_BYTES = 1024 * 1024
 
 
 class Page(Protocol):
@@ -319,6 +323,7 @@ def create_app(
     allowed_origins: Iterable[str] | None = None,
 ) -> FastAPI:
     manager = BrowserManager(launch_browser)
+    proxy_file_lock = asyncio.Lock()
     origin_allowlist = set(DEFAULT_ALLOWED_ORIGINS)
     origin_allowlist.update(
         origin.strip()
@@ -363,21 +368,86 @@ def create_app(
     @application.get("/configuration")
     async def configuration() -> dict[str, int]:
         try:
-            return {
-                "static_proxy_count": count_configured_proxies(proxy_file),
-                "rotating_proxy_count": count_configured_proxies(rotating_proxy_file),
-            }
+            async with proxy_file_lock:
+                return {
+                    "static_proxy_count": count_configured_proxies(proxy_file),
+                    "rotating_proxy_count": count_configured_proxies(rotating_proxy_file),
+                }
         except ProxyFileError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @application.post("/configuration/proxies")
+    async def save_proxy_configuration(request: Request) -> dict[str, str | int]:
+        content_length = request.headers.get("content-length")
+        try:
+            if content_length is not None and int(content_length) > MAX_PROXY_REQUEST_BYTES:
+                raise HTTPException(status_code=400, detail="Request body is too large")
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail="Malformed request body") from error
+
+        body = bytearray()
+        try:
+            async for chunk in request.stream():
+                body.extend(chunk)
+                if len(body) > MAX_PROXY_REQUEST_BYTES:
+                    raise HTTPException(status_code=400, detail="Request body is too large")
+            payload = json.loads(body)
+        except HTTPException:
+            raise
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise HTTPException(status_code=400, detail="Malformed JSON request") from error
+
+        allowed_fields = {"mode", "proxies", "confirm_clear"}
+        if (
+            type(payload) is not dict
+            or not {"mode", "proxies"}.issubset(payload)
+            or not set(payload).issubset(allowed_fields)
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Request must contain mode, proxies, and optional confirm_clear only",
+            )
+
+        mode = payload["mode"]
+        contents = payload["proxies"]
+        confirm_clear = payload.get("confirm_clear", False)
+        if type(mode) is not str or mode not in {"static", "rotating"}:
+            raise HTTPException(status_code=400, detail="mode must be static or rotating")
+        if type(contents) is not str:
+            raise HTTPException(status_code=400, detail="proxies must be a string")
+        if type(confirm_clear) is not bool:
+            raise HTTPException(status_code=400, detail="confirm_clear must be a boolean")
+
+        try:
+            proxies = parse_proxy_text(contents)
+        except ProxyFileError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        if not proxies and not confirm_clear:
+            raise HTTPException(
+                status_code=400,
+                detail="confirm_clear must be true to save an empty proxy list",
+            )
+
+        destination = proxy_file if mode == "static" else rotating_proxy_file
+        try:
+            async with proxy_file_lock:
+                replace_proxy_file(destination, contents)
+        except (OSError, UnicodeError) as error:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unable to save {mode} proxy configuration",
+            ) from error
+        return {"mode": mode, "count": len(proxies)}
 
     @application.post("/browsers")
     async def launch_browsers(request: LaunchRequest) -> dict[str, int]:
         try:
             static_count = request.windows_per_proxy or request.static_windows_per_proxy
-            static_proxies = load_proxies(proxy_file) if static_count else []
-            rotating_proxies = (
-                load_proxies(rotating_proxy_file) if request.rotating_windows_per_proxy else []
-            )
+            async with proxy_file_lock:
+                static_proxies = load_proxies(proxy_file) if static_count else []
+                rotating_proxies = (
+                    load_proxies(rotating_proxy_file) if request.rotating_windows_per_proxy else []
+                )
             launched = await manager.launch(
                 static_proxies,
                 static_count,

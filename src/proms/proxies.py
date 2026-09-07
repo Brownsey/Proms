@@ -1,3 +1,5 @@
+import os
+import tempfile
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -25,7 +27,8 @@ def _host(value: str, line_number: int) -> str:
     if (
         not value
         or any(character.isspace() for character in value)
-        or any(character in value for character in "/@")
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        or any(character in value for character in "/@?#%\\[]<>^|")
     ):
         raise ProxyFileError(f"Invalid proxy on line {line_number}: host is malformed")
     return value
@@ -40,9 +43,7 @@ def _parse_proxy(value: str, line_number: int) -> ProxySettings:
             username = parsed.username
             password = parsed.password
         except ValueError as error:
-            raise ProxyFileError(
-                f"Invalid proxy on line {line_number}: malformed URL ({error})"
-            ) from error
+            raise ProxyFileError(f"Invalid proxy on line {line_number}: malformed URL") from error
         if parsed.scheme not in SUPPORTED_SCHEMES:
             raise ProxyFileError(f"Invalid proxy on line {line_number}: unsupported scheme")
         if parsed.path or parsed.query or parsed.fragment or host is None:
@@ -79,6 +80,37 @@ def _parse_proxy(value: str, line_number: int) -> ProxySettings:
     return settings
 
 
+def parse_proxy_text(contents: str) -> list[ProxySettings]:
+    return [
+        _parse_proxy(line.strip(), line_number)
+        for line_number, line in enumerate(contents.splitlines(), start=1)
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def replace_proxy_file(path: Path, contents: str) -> None:
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(contents)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, path)
+    except BaseException:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+        raise
+
+
 def _load_proxies(path: Path, *, optional: bool) -> list[ProxySettings]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -89,11 +121,7 @@ def _load_proxies(path: Path, *, optional: bool) -> list[ProxySettings]:
     except OSError as error:
         raise ProxyFileError(f"Unable to read proxy file {path}: {error}") from error
 
-    proxies = [
-        _parse_proxy(line.strip(), line_number)
-        for line_number, line in enumerate(lines, start=1)
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
+    proxies = parse_proxy_text("\n".join(lines))
     if not proxies and not optional:
         raise ProxyFileError(f"Proxy file contains no proxies: {path}")
     return proxies
