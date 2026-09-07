@@ -37,6 +37,13 @@ test("starts disconnected and explains local-service permission", async ({ page 
   await expect(page.getByRole("heading", { level: 1, name: "Launch manifest" })).toBeVisible();
   await expect(page.getByText("Not connected", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Connect local service" })).toBeVisible();
+  await expect(
+    page.getByText(/local service must already be installed and running on this computer/i),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Setup instructions" })).toHaveAttribute(
+    "href",
+    "https://github.com/Brownsey/Proms#setup",
+  );
   await expect(page.getByText(/browser may ask permission to reach devices on your local network/i)).toBeVisible();
   await expect(page.getByText(/Safari does not support this remote-to-local control flow/i)).toBeVisible();
   expect(requests.filter((url) => url.startsWith(API))).toEqual([]);

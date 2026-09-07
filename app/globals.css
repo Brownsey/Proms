@@ -243,6 +243,10 @@ footer {
   line-height: 1.55;
 }
 
+.permission-note a {
+  color: var(--white);
+}
+
 .manifest {
   display: flex;
   flex-direction: column;

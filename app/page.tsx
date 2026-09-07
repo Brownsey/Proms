@@ -295,6 +295,11 @@ export default function Dashboard() {
             </button>
           )}
           <p className="permission-note">
+            The Proms local service must already be installed and running on this computer. {" "}
+            <a href="https://github.com/Brownsey/Proms#setup" target="_blank" rel="noreferrer">
+              Setup instructions
+            </a>
+            . {" "}
             Your browser may ask permission to reach devices on your local network. This page only contacts {API_URL}.
           </p>
         </div>
