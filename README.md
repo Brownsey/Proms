@@ -6,6 +6,26 @@ A local browser launcher with a hosted control panel. The backend opens interact
 
 Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 20.9+.
 
+### Agent-assisted Windows setup
+
+An automation agent can read [`AGENTS.md`](AGENTS.md) and install the required tooling and dependencies with one idempotent command:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1
+```
+
+The script installs missing `uv` and Node.js LTS through Windows Package Manager, restores both lockfiles, installs Playwright Chromium, and creates empty ignored proxy files when absent. It preserves existing proxy files and never reads or prints their values. Windows may still require approval for an installer.
+
+Agents can optionally check the machine prerequisites without installing anything:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1 -CheckOnly
+```
+
+Check mode does not replace the full setup command. Proxy credentials must still be added locally by the user; neither the agent nor the hosted website should receive or inspect them. After startup, agents can use the numeric counts from `GET /configuration` to determine whether proxies are configured.
+
+### Manual setup
+
 ```powershell
 uv sync --locked
 uv run playwright install chromium
