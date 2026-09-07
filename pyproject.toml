@@ -1,0 +1,46 @@
+[project]
+name = "proms"
+version = "0.1.0"
+description = "Local API for launching interactive browser windows through proxies"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.116,<1",
+    "playwright>=1.55,<2",
+    "uvicorn>=0.35,<1",
+]
+
+[project.scripts]
+proms = "proms.__main__:main"
+verify = "proms.verify:main"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28,<1",
+    "pytest>=8.4,<10",
+    "pytest-asyncio>=1.1,<2",
+    "ruff>=0.12,<1",
+    "ty>=0.0.1a20,<1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/proms"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ty.src]
+include = ["src", "tests"]
