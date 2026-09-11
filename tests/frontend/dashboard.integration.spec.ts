@@ -1,14 +1,15 @@
 import { expect, test } from "@playwright/test";
 
 test("controls the isolated FastAPI browser service end to end", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByText(/only contacts http:\/\/127\.0\.0\.1:8123/i)).toBeVisible();
+  await page.goto("/control/");
+  await expect(page.getByText(/UI is served by the loopback service/i)).toBeVisible();
+  await expect(page.getByText(/controls and proxy drafts stay on this PC/i)).toBeVisible();
+  await expect(page.getByText(/existing proxy values are never displayed/i)).toBeVisible();
 
-  await page.getByRole("button", { name: "Connect local service" }).click();
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-  await expect(page.getByText("1", { exact: true })).toBeVisible();
-  await expect(page.getByText("R / 0", { exact: true })).toBeVisible();
-  await expect(page.getByText("0 active", { exact: true })).toBeVisible();
+  await expect(page.getByText("Static proxies", { exact: true }).locator("..").locator("dd")).toHaveText("1");
+  await expect(page.getByText("Rotating proxies", { exact: true }).locator("..").locator("dd")).toHaveText("0");
+  await expect(page.getByText("Windows", { exact: true }).locator("..").locator("dd")).toHaveText("0 active");
 
   await page.getByText("Local proxy files", { exact: true }).click();
   await page.getByLabel("Static proxies", { exact: true }).fill("first.test:9001\nsecond.test:9002");

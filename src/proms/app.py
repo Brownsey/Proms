@@ -13,7 +13,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from playwright.async_api import (
     Playwright,
     async_playwright,
@@ -33,11 +34,41 @@ from proms.proxies import (
 )
 
 DEFAULT_ALLOWED_ORIGINS = {
-    "https://proms-rust.vercel.app",
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
     "http://127.0.0.1:3000",
     "http://localhost:3000",
 }
 MAX_PROXY_REQUEST_BYTES = 1024 * 1024
+
+
+def _is_http_loopback_origin(origin: str) -> bool:
+    if not origin or origin != origin.strip() or any(character.isspace() for character in origin):
+        return False
+    try:
+        parsed = urlsplit(origin)
+        host = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return False
+    if (
+        parsed.scheme != "http"
+        or host is None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+        or parsed.netloc.endswith(":")
+        or port == 0
+    ):
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 class Page(Protocol):
@@ -321,6 +352,7 @@ def create_app(
     ip_check_url: str = "https://api64.ipify.org",
     launch_browser: LaunchBrowser | None = None,
     allowed_origins: Iterable[str] | None = None,
+    ui_build_path: Path = Path(".next"),
 ) -> FastAPI:
     manager = BrowserManager(launch_browser)
     proxy_file_lock = asyncio.Lock()
@@ -328,10 +360,12 @@ def create_app(
     origin_allowlist.update(
         origin.strip()
         for origin in os.getenv("PROMS_ALLOWED_ORIGINS", "").split(",")
-        if origin.strip()
+        if _is_http_loopback_origin(origin.strip())
     )
     if allowed_origins is not None:
-        origin_allowlist.update(origin.strip() for origin in allowed_origins if origin.strip())
+        origin_allowlist.update(
+            origin.strip() for origin in allowed_origins if _is_http_loopback_origin(origin.strip())
+        )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -342,13 +376,6 @@ def create_app(
 
     application = FastAPI(lifespan=lifespan)
 
-    @application.middleware("http")
-    async def reject_untrusted_mutation(request: Request, call_next):
-        origin = request.headers.get("origin")
-        if request.method in {"POST", "DELETE"} and origin and origin not in origin_allowlist:
-            return JSONResponse(status_code=403, content={"detail": "Origin not allowed"})
-        return await call_next(request)
-
     application.add_middleware(
         CORSMiddleware,
         allow_origins=sorted(origin_allowlist),
@@ -358,9 +385,39 @@ def create_app(
         allow_private_network=True,
     )
 
+    @application.middleware("http")
+    async def reject_untrusted_browser_origin(request: Request, call_next):
+        origin = request.headers.get("origin")
+        if origin and origin not in origin_allowlist:
+            return JSONResponse(status_code=403, content={"detail": "Origin not allowed"})
+        return await call_next(request)
+
+    application.mount(
+        "/_next/static",
+        StaticFiles(directory=ui_build_path / "static", check_dir=False),
+        name="next-static",
+    )
+
     @application.exception_handler(RequestValidationError)
     async def validation_error(_: Request, error: RequestValidationError) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": jsonable_encoder(error.errors())})
+
+    @application.get("/", include_in_schema=False)
+    async def root() -> RedirectResponse:
+        return RedirectResponse("/control/")
+
+    @application.get("/control/", include_in_schema=False)
+    async def control_panel() -> FileResponse:
+        control_html = ui_build_path / "server" / "app" / "control.html"
+        if not control_html.is_file():
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Local control panel is not built. Run scripts/setup.ps1, "
+                    "then restart uv run proms."
+                ),
+            )
+        return FileResponse(control_html, media_type="text/html")
 
     @application.get("/health")
     async def health() -> dict[str, str]:

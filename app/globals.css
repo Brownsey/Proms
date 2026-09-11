@@ -584,7 +584,270 @@ footer p {
   margin: 0;
 }
 
+.installer-shell {
+  min-height: 100vh;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: clamp(24px, 4vw, 54px) clamp(22px, 5vw, 76px) 32px;
+  background: var(--paper);
+  border-inline: 1px solid var(--rail);
+}
+
+.installer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid var(--ink);
+}
+
+.installer-mark {
+  color: var(--ink);
+}
+
+.repo-link {
+  color: var(--signal);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-underline-offset: 4px;
+}
+
+.project-links {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.installer-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr);
+  gap: clamp(30px, 7vw, 100px);
+  align-items: end;
+  padding: clamp(54px, 9vw, 116px) 0 clamp(46px, 7vw, 88px);
+}
+
+.installer-hero h1 {
+  max-width: 850px;
+}
+
+.installer-lede {
+  max-width: 42ch;
+  margin: 0;
+  padding-left: 20px;
+  font-size: 1rem;
+  line-height: 1.65;
+  border-left: 5px solid var(--signal);
+}
+
+.handoff-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.8fr) minmax(420px, 1.2fr);
+  border-block: 1px solid var(--ink);
+}
+
+.runbook,
+.codex-lane {
+  min-width: 0;
+  padding: clamp(28px, 4vw, 52px);
+}
+
+.runbook {
+  padding-left: 0;
+  border-right: 1px solid var(--rail);
+}
+
+.codex-lane {
+  padding-right: 0;
+}
+
+.section-heading h2 {
+  max-width: 16ch;
+  margin: 8px 0 0;
+  font-family: var(--display);
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  line-height: 0.96;
+  letter-spacing: -0.04em;
+  text-transform: uppercase;
+}
+
+.runbook ol {
+  padding: 0;
+  margin: 34px 0;
+  list-style: none;
+}
+
+.runbook li {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 16px;
+  padding: 20px 0;
+  border-top: 1px solid var(--rail);
+}
+
+.runbook li:last-child {
+  border-bottom: 1px solid var(--rail);
+}
+
+.runbook li > span,
+.security-note strong,
+.packet-label,
+.handoff-packet > label,
+.copy-status {
+  font-family: var(--mono);
+}
+
+.runbook li > span {
+  padding-top: 3px;
+  color: var(--signal);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.runbook h3 {
+  margin: 0 0 7px;
+  font-family: var(--display);
+  font-size: 1.22rem;
+}
+
+.runbook li p,
+.security-note p,
+.codex-lane > p {
+  margin: 0;
+  color: #536178;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.security-note {
+  padding: 18px;
+  color: var(--white);
+  background: var(--ink);
+  border-left: 5px solid var(--success);
+}
+
+.security-note strong {
+  color: #68d4b5;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+}
+
+.security-note p {
+  margin-top: 8px;
+  color: var(--fog);
+}
+
+.security-note code {
+  font-family: var(--mono);
+}
+
+.codex-lane > p {
+  max-width: 55ch;
+  margin: 18px 0 24px;
+}
+
+.handoff-packet {
+  padding: 8px;
+  background: var(--fog);
+  border: 1px solid var(--ink);
+  box-shadow: 8px 8px 0 var(--rail);
+}
+
+.packet-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 9px 13px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+}
+
+.handoff-packet > label {
+  padding: 0 9px 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.handoff-packet textarea {
+  min-height: 290px;
+  padding: 16px;
+  background: var(--ink);
+  color: var(--white);
+  border: 0;
+  font-size: 0.76rem;
+}
+
+.packet-actions {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.55fr) 1fr;
+  gap: 14px;
+  align-items: center;
+  padding: 9px 0 0;
+}
+
+.copy-button {
+  min-height: 46px;
+  color: var(--white);
+  background: var(--signal);
+  border: 1px solid var(--signal);
+  border-radius: 2px;
+  font-weight: 700;
+}
+
+.copy-button:hover {
+  background: #0a49d6;
+}
+
+.copy-status {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.67rem;
+  line-height: 1.45;
+}
+
+.copy-copied {
+  color: #0a664b;
+  font-weight: 700;
+}
+
+.copy-failed {
+  color: var(--warning);
+}
+
+.installer-footer {
+  margin-top: 0;
+  padding-top: 22px;
+}
+
 @media (max-width: 800px) {
+  .installer-shell {
+    border: 0;
+  }
+
+  .installer-hero {
+    display: block;
+  }
+
+  .installer-lede {
+    margin-top: 30px;
+  }
+
+  .handoff-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .runbook,
+  .codex-lane {
+    padding-inline: 0;
+  }
+
+  .runbook {
+    border-right: 0;
+    border-bottom: 1px solid var(--rail);
+  }
+
   .shell {
     display: block;
     border: 0;
@@ -660,6 +923,28 @@ footer p {
 }
 
 @media (max-width: 440px) {
+  .installer-header,
+  .packet-actions {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .installer-header {
+    display: grid;
+  }
+
+  .project-links {
+    flex-wrap: wrap;
+  }
+
+  .installer-hero h1 {
+    font-size: clamp(3.45rem, 17vw, 5rem);
+  }
+
+  .handoff-packet textarea {
+    min-height: 350px;
+  }
+
   .status-rail {
     grid-template-columns: 1fr 112px;
     gap: 14px;

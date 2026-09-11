@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Proms | Launch manifest",
-  description: "Local proxy browser launch control",
+  title: "Proms | Windows setup",
+  description: "Install Proms and open its local browser control panel",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

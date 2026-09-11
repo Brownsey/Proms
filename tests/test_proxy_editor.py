@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from proms.app import create_app
 
-PRODUCTION_ORIGIN = "https://proms-rust.vercel.app"
+LOCAL_CONTROL_ORIGIN = "http://127.0.0.1:8000"
 
 
 def client_for(tmp_path: Path) -> tuple[TestClient, Path, Path]:
@@ -37,13 +37,13 @@ def test_save_proxy_list_replaces_only_selected_mode_and_refreshes_counts(
         response = client.post(
             "/configuration/proxies",
             json={"mode": mode, "proxies": submitted},
-            headers={"Origin": PRODUCTION_ORIGIN},
+            headers={"Origin": LOCAL_CONTROL_ORIGIN},
         )
         configuration = client.get("/configuration")
 
     assert response.status_code == 200
     assert response.json() == {"mode": mode, "count": 2}
-    assert response.headers["access-control-allow-origin"] == PRODUCTION_ORIGIN
+    assert response.headers["access-control-allow-origin"] == LOCAL_CONTROL_ORIGIN
     assert response.headers["vary"] == "Origin"
     assert "access-control-allow-credentials" not in response.headers
     assert files[target_name].read_text(encoding="utf-8") == submitted

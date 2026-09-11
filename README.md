@@ -1,6 +1,6 @@
 # Proms
 
-A local browser launcher with a hosted control panel. The backend opens interactive Chromium windows through static and rotating proxies. The frontend can save proxy lists directly to the local service without sending them to Vercel.
+A local browser launcher and control panel. The backend opens interactive Chromium windows through static and rotating proxies. All controls, including unsaved proxy drafts, stay on this computer. The hosted website contains installation guidance only.
 
 ## Setup
 
@@ -14,7 +14,7 @@ An automation agent can read [`AGENTS.md`](AGENTS.md) and install the required t
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1
 ```
 
-The script installs missing `uv` and Node.js LTS through Windows Package Manager, restores both lockfiles, installs Playwright Chromium, and creates empty ignored proxy files when absent. It preserves existing proxy files and never reads or prints their values. Windows may still require approval for an installer.
+The script installs missing `uv` and Node.js LTS through Windows Package Manager, restores both lockfiles, installs Playwright Chromium, builds the local control panel, and creates empty ignored proxy files when absent. It preserves existing proxy files and never reads or prints their values. Windows may still require approval for an installer.
 
 Agents can optionally check the machine prerequisites without installing anything:
 
@@ -22,14 +22,15 @@ Agents can optionally check the machine prerequisites without installing anythin
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1 -CheckOnly
 ```
 
-Check mode does not replace the full setup command. Agents must never read proxy credentials. After startup, agents can use the numeric counts from `GET /configuration` to determine whether proxies are configured; users can add or replace proxy lists through the hosted control panel.
+Check mode does not replace the full setup command. Agents must never read proxy credentials. After startup, agents can use only the numeric counts from `GET /configuration` to determine whether proxies are configured; users can add or replace proxy lists through the local control panel.
 
 ### Manual setup
 
 ```powershell
 uv sync --locked
-uv run playwright install chromium
 npm ci
+uv run playwright install chromium
+npm run build
 ```
 
 Create `proxies.txt` for static proxies and `rotating_proxies.txt` for rotating
@@ -57,15 +58,11 @@ machines by default.
 
 ## Use the control panel
 
-Open [proms-rust.vercel.app](https://proms-rust.vercel.app) in Chrome, Edge, or Firefox, then select **Connect local service** and approve the browser's local-network prompt. Use **Local proxy files** to save static or rotating proxy lists on this computer. The page sends those values straight from your browser to `127.0.0.1`; Vercel does not receive them, the page does not persist them, and existing values are never displayed. Saving replaces only the selected ignored local file.
+Open [http://127.0.0.1:8000/control/](http://127.0.0.1:8000/control/). Use **Local proxy files** to save static or rotating proxy lists on this computer. Drafts, saved values, and control requests never pass through Vercel. Existing values are never displayed; only counts are returned. Saving replaces only the selected ignored local file.
 
-Safari cannot currently connect from the hosted HTTPS page to the HTTP loopback service. The API can still be controlled directly, or the frontend can be run locally:
+[proms-rust.vercel.app](https://proms-rust.vercel.app) is an installer and documentation page. It cannot read or control the local service.
 
-```powershell
-npm run dev
-```
-
-Additional trusted frontend origins can be supplied as a comma-separated list in `PROMS_ALLOWED_ORIGINS`. Requests from other browser origins cannot save proxies, launch windows, or close windows.
+Additional trusted loopback development origins can be supplied as a comma-separated list in `PROMS_ALLOWED_ORIGINS`. Non-loopback browser origins remain blocked and cannot read status, save proxies, launch windows, or close windows.
 
 The service also exposes `GET /health` and a secret-safe `GET /configuration` summary.
 

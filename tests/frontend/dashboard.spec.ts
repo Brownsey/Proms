@@ -23,35 +23,32 @@ async function mockConnectedApi(page: Page, active = 3) {
 
 async function connect(page: Page, active = 3) {
   await mockConnectedApi(page, active);
-  await page.goto("/");
-  await page.getByRole("button", { name: "Connect local service" }).click();
+  await page.goto("/control/");
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
 }
 
-test("starts disconnected and explains local-service permission", async ({ page }) => {
-  const requests: string[] = [];
-  page.on("request", (request) => requests.push(request.url()));
+test("connects automatically and explains the local-only boundary", async ({ page }) => {
+  await mockConnectedApi(page);
+  await page.goto("/control/");
 
-  await page.goto("/");
-
+  await expect(page).toHaveTitle("Proms | Local control");
   await expect(page.getByRole("heading", { level: 1, name: "Launch manifest" })).toBeVisible();
-  await expect(page.getByText("Not connected", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Connect local service" })).toBeVisible();
-  await expect(
-    page.getByText(/local service must already be installed and running on this computer/i),
-  ).toBeVisible();
-  await expect(page.getByRole("link", { name: "Setup instructions" })).toHaveAttribute(
-    "href",
-    "https://github.com/Brownsey/Proms#setup",
-  );
-  await expect(page.getByText(/browser may ask permission to reach devices on your local network/i)).toBeVisible();
-  await expect(page.getByText(/Safari does not support this remote-to-local control flow/i)).toBeVisible();
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh status" })).toBeVisible();
+  await expect(page.getByText(/UI is served by the loopback service/i)).toBeVisible();
+  await expect(page.getByText(/controls and proxy drafts stay on this PC/i)).toBeVisible();
+  await expect(page.getByText(/existing proxy values are never displayed/i)).toBeVisible();
+  await expect(page.getByText(/local network access/i)).toHaveCount(0);
+  await expect(page.getByText(/Safari/i)).toHaveCount(0);
   await page.getByText("Local proxy files", { exact: true }).click();
-  await expect(page.getByLabel("Static proxies", { exact: true })).toBeDisabled();
-  await expect(page.getByLabel("Rotating proxies", { exact: true })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Save static list" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Save rotating list" })).toBeDisabled();
-  expect(requests.filter((url) => url.startsWith(API))).toEqual([]);
+  const staticDraft = page.getByLabel("Static proxies", { exact: true });
+  const rotatingDraft = page.getByLabel("Rotating proxies", { exact: true });
+  await staticDraft.fill("static-draft.test:8001");
+  await rotatingDraft.fill("rotating-draft.test:9001");
+  await expect(staticDraft).toHaveValue("static-draft.test:8001");
+  await expect(rotatingDraft).toHaveValue("rotating-draft.test:9001");
+  await expect(page.getByRole("button", { name: "Save static list" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Save rotating list" })).toBeEnabled();
 });
 
 test("exposes the connecting state and prevents duplicate connect actions", async ({ page }) => {
@@ -69,10 +66,9 @@ test("exposes the connecting state and prevents duplicate connect actions", asyn
     }
     return route.fulfill({ json: { active: 3 } });
   });
-  await page.goto("/");
+  await page.goto("/control/");
 
   const connectButton = page.getByRole("button", { name: "Connecting…" });
-  await page.getByRole("button", { name: "Connect local service" }).click();
   await expect(connectButton).toBeDisabled();
   await expect(page.locator("main")).toHaveAttribute("aria-busy", "true");
   await expect.poll(() => requestCount).toBe(2);
@@ -80,6 +76,30 @@ test("exposes the connecting state and prevents duplicate connect actions", asyn
   releaseRequests();
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await expect(page.locator("main")).toHaveAttribute("aria-busy", "false");
+});
+
+test("offers retry after automatic connection failure", async ({ page }) => {
+  let available = false;
+  await page.route(`${API}/configuration`, (route) =>
+    available
+      ? route.fulfill({ json: { static_proxy_count: 4, rotating_proxy_count: 2 } })
+      : route.abort("connectionrefused"),
+  );
+  await page.route(`${API}/browsers`, (route) =>
+    available ? route.fulfill({ json: { active: 3 } }) : route.abort("connectionrefused"),
+  );
+
+  await page.goto("/control/");
+  const retry = page.getByRole("button", { name: "Retry connection" });
+  await expect(retry).toBeVisible();
+  await expect(
+    page.getByRole("alert").filter({ hasText: `Start the local service at ${API}, then retry.` }),
+  ).toBeVisible();
+
+  available = true;
+  await retry.click();
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await expect(page.getByText("3 active", { exact: true })).toBeVisible();
 });
 
 test("connects, shows proxy and browser counts, then refreshes", async ({ page }) => {
@@ -91,9 +111,8 @@ test("connects, shows proxy and browser counts, then refreshes", async ({ page }
     statusCalls += 1;
     return route.fulfill({ json: { active: statusCalls === 1 ? 3 : 5 } });
   });
-  await page.goto("/");
+  await page.goto("/control/");
 
-  await page.getByRole("button", { name: "Connect local service" }).click();
   await expect(page.getByText("4", { exact: true })).toBeVisible();
   await expect(page.getByText("2", { exact: true })).toBeVisible();
   await expect(page.getByText("3 active", { exact: true })).toBeVisible();
@@ -127,15 +146,16 @@ test("launches with exact settings and reports active windows", async ({ page })
   });
 });
 
-test("supports keyboard connection and form submission", async ({ page }) => {
+test("supports keyboard status refresh and form submission", async ({ page }) => {
   await mockConnectedApi(page);
-  await page.goto("/");
+  await page.goto("/control/");
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
 
   await page.keyboard.press("Tab");
-  const connectButton = page.getByRole("button", { name: "Connect local service" });
-  await expect(connectButton).toBeFocused();
+  const refreshButton = page.getByRole("button", { name: "Refresh status" });
+  await expect(refreshButton).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await expect(page.getByText("Status refreshed.", { exact: true })).toBeVisible();
 
   let launchCalls = 0;
   await page.route(`${API}/browsers`, (route) => {
@@ -265,7 +285,7 @@ test("retains drafts through save failures without reflecting credentials", asyn
   await page.getByRole("button", { name: "Save static list" }).click();
   await expect(page.getByRole("alert").filter({ hasText: /start the local service/i })).toBeVisible();
   await expect(editor).toHaveValue(draft);
-  await expect(page.getByRole("button", { name: "Connect local service" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry connection" })).toBeVisible();
 });
 
 test("confirms clearing a comment-only proxy list", async ({ page }) => {
@@ -393,7 +413,7 @@ test("shows safe FastAPI errors and offline recovery guidance", async ({ page })
   await expect(
     page.getByRole("alert").filter({ hasText: /start the local service at http:\/\/127\.0\.0\.1:8123/i }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Connect local service" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry connection" })).toBeVisible();
 });
 
 test("persists only versioned nonsecret launch settings", async ({ page }) => {
@@ -438,7 +458,7 @@ test("rewrites legacy v1 settings without retaining its target URL", async ({ pa
     );
   });
 
-  await page.goto("/");
+  await page.goto("/control/");
 
   await expect(page.getByLabel("Static windows per proxy")).toHaveValue("4");
   await expect(page.getByLabel("Rotating windows per proxy")).toHaveValue("2");
@@ -457,10 +477,12 @@ test("rewrites legacy v1 settings without retaining its target URL", async ({ pa
 
 test("keeps key actions visible without horizontal overflow on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await mockConnectedApi(page);
+  await page.goto("/control/");
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await page.getByText("Local proxy files", { exact: true }).click();
 
-  await expect(page.getByRole("button", { name: "Connect local service" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh status" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Launch windows" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Close all" })).toBeVisible();
   await expect(page.getByLabel("Static proxies", { exact: true })).toBeVisible();

@@ -95,8 +95,9 @@ try {
     }
 
     Invoke-Checked "uv" @("sync", "--locked")
-    Invoke-Checked "uv" @("run", "playwright", "install", "chromium")
     Invoke-Checked "npm" @("ci")
+    Invoke-Checked "uv" @("run", "playwright", "install", "chromium")
+    Invoke-Checked "npm" @("run", "build")
 
     foreach ($proxyFile in @("proxies.txt", "rotating_proxies.txt")) {
         $proxyPath = Join-Path $repoRoot $proxyFile
@@ -105,8 +106,8 @@ try {
         }
     }
 
-    Write-Output "READY: dependencies and Chromium are installed"
-    Write-Output "NEXT: add proxy values locally, then run 'uv run proms'"
+    Write-Output "READY: dependencies, Chromium, and the local control panel are installed"
+    Write-Output "NEXT: run 'uv run proms', then open http://127.0.0.1:8000/control/"
 }
 finally {
     Pop-Location
