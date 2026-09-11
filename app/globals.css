@@ -672,25 +672,8 @@ footer p {
   text-transform: uppercase;
 }
 
-.runbook ol {
-  padding: 0;
-  margin: 34px 0;
-  list-style: none;
-}
-
-.runbook li {
-  display: grid;
-  grid-template-columns: 42px 1fr;
-  gap: 16px;
-  padding: 20px 0;
-  border-top: 1px solid var(--rail);
-}
-
-.runbook li:last-child {
-  border-bottom: 1px solid var(--rail);
-}
-
-.runbook li > span,
+.platform-heading > span,
+.untested-label,
 .security-note strong,
 .packet-label,
 .handoff-packet > label,
@@ -698,26 +681,74 @@ footer p {
   font-family: var(--mono);
 }
 
-.runbook li > span {
-  padding-top: 3px;
+.setup-stage {
+  padding: 22px 0;
+  border-top: 1px solid var(--rail);
+}
+
+.setup-stage:first-of-type {
+  margin-top: 34px;
+}
+
+.setup-stage:last-of-type {
+  border-bottom: 1px solid var(--rail);
+}
+
+.platform-heading {
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.platform-heading > span {
   color: var(--signal);
   font-size: 0.72rem;
   font-weight: 700;
 }
 
-.runbook h3 {
-  margin: 0 0 7px;
+.platform-heading h3 {
+  margin: 0;
   font-family: var(--display);
   font-size: 1.22rem;
 }
 
-.runbook li p,
+.setup-stage > p,
 .security-note p,
 .codex-lane > p {
   margin: 0;
   color: #536178;
   font-size: 0.86rem;
   line-height: 1.55;
+}
+
+.setup-stage > p {
+  margin: 10px 0;
+}
+
+.untested-label {
+  color: var(--warning);
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.command-stack {
+  display: grid;
+  gap: 6px;
+}
+
+.command-stack code {
+  display: block;
+  padding: 9px 11px;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  background: var(--fog);
+  border-left: 3px solid var(--signal);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  line-height: 1.5;
+  user-select: all;
 }
 
 .security-note {

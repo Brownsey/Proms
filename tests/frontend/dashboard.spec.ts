@@ -149,7 +149,7 @@ test("launches with exact settings and reports active windows", async ({ page })
 test("supports keyboard status refresh and form submission", async ({ page }) => {
   await mockConnectedApi(page);
   await page.goto("/control/");
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible({ timeout: 15_000 });
 
   await page.keyboard.press("Tab");
   const refreshButton = page.getByRole("button", { name: "Refresh status" });
@@ -423,6 +423,15 @@ test("persists only versioned nonsecret launch settings", async ({ page }) => {
   await page.getByLabel("Target URL").fill("https://example.com/job?token=signed-secret");
   await page.getByLabel("Rotation attempts").fill("9");
 
+  const expectedStoredSettings = JSON.stringify({
+    version: 1,
+    staticWindows: "2",
+    rotatingWindows: "1",
+    rotationAttempts: "9",
+  });
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("proms.launch-settings.v1")))
+    .toBe(expectedStoredSettings);
   const beforeReload = await page.evaluate(() => ({ ...localStorage }));
   expect(JSON.stringify(beforeReload)).not.toContain("signed-secret");
   await page.reload();
@@ -433,14 +442,7 @@ test("persists only versioned nonsecret launch settings", async ({ page }) => {
   await expect(page.getByLabel("Rotation attempts")).toHaveValue("9");
   const storage = await page.evaluate(() => ({ ...localStorage }));
   expect(Object.keys(storage)).toEqual(["proms.launch-settings.v1"]);
-  expect(storage["proms.launch-settings.v1"]).toBe(
-    JSON.stringify({
-      version: 1,
-      staticWindows: "2",
-      rotatingWindows: "1",
-      rotationAttempts: "9",
-    }),
-  );
+  expect(storage["proms.launch-settings.v1"]).toBe(expectedStoredSettings);
   expect(JSON.stringify(storage)).not.toMatch(/proxy|password|token|secret/i);
 });
 

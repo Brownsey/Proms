@@ -66,7 +66,7 @@ try {
 
     if ($CheckOnly) {
         $missing = @(
-            @("uv", "node", "npm") | Where-Object {
+            @("uv", "node", "npm", "npx") | Where-Object {
                 $null -eq (Get-Command $_ -ErrorAction SilentlyContinue)
             }
         )
@@ -84,6 +84,7 @@ try {
     Ensure-Command "uv" "astral-sh.uv"
     Ensure-Command "node" "OpenJS.NodeJS.LTS"
     Ensure-Command "npm" "OpenJS.NodeJS.LTS"
+    Ensure-Command "npx" "OpenJS.NodeJS.LTS"
 
     $nodeVersion = [version]((& node --version).TrimStart("v"))
     if ($nodeVersion -lt [version]"20.9.0") {
@@ -96,7 +97,8 @@ try {
 
     Invoke-Checked "uv" @("sync", "--locked")
     Invoke-Checked "npm" @("ci")
-    Invoke-Checked "uv" @("run", "playwright", "install", "chromium")
+    Invoke-Checked "npx" @("playwright", "install", "chromium")
+    Invoke-Checked "uv" @("run", "--locked", "playwright", "install", "chromium")
     Invoke-Checked "npm" @("run", "build")
 
     foreach ($proxyFile in @("proxies.txt", "rotating_proxies.txt")) {
@@ -107,7 +109,7 @@ try {
     }
 
     Write-Output "READY: dependencies, Chromium, and the local control panel are installed"
-    Write-Output "NEXT: run 'uv run proms', then open http://127.0.0.1:8000/control/"
+    Write-Output "NEXT: run 'uv run --locked proms', then open http://127.0.0.1:8000/control/"
 }
 finally {
     Pop-Location

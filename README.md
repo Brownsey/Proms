@@ -14,7 +14,7 @@ An automation agent can read [`AGENTS.md`](AGENTS.md) and install the required t
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1
 ```
 
-The script installs missing `uv` and Node.js LTS through Windows Package Manager, restores both lockfiles, installs Playwright Chromium, builds the local control panel, and creates empty ignored proxy files when absent. It preserves existing proxy files and never reads or prints their values. Windows may still require approval for an installer.
+The script installs missing `uv` and Node.js LTS through Windows Package Manager, restores both lockfiles, installs both required Playwright Chromium revisions, builds the local control panel, and creates empty ignored proxy files when absent. It preserves existing proxy files and never reads or prints their values. Windows may still require approval for an installer.
 
 Agents can optionally check the machine prerequisites without installing anything:
 
@@ -24,12 +24,31 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1 -Check
 
 Check mode does not replace the full setup command. Agents must never read proxy credentials. After startup, agents can use only the numeric counts from `GET /configuration` to determine whether proxies are configured; users can add or replace proxy lists through the local control panel.
 
+### Agent-assisted macOS setup (currently untested)
+
+macOS support currently requires macOS 14 Sonoma or newer, Homebrew when tools need installing, and a logged-in GUI session so Chromium windows can open. Run from any directory inside or outside the checkout:
+
+```bash
+bash /path/to/Proms/scripts/setup.sh
+```
+
+The script finds the repository root, installs missing `uv` and Node.js 24 LTS through Homebrew, restores locked dependencies, installs both Playwright Chromium revisions, builds the local control panel, and creates missing ignored proxy files without reading or replacing existing values.
+
+Optional prerequisite check:
+
+```bash
+bash /path/to/Proms/scripts/setup.sh --check-only
+```
+
+This macOS path is currently untested on macOS hardware.
+
 ### Manual setup
 
 ```powershell
 uv sync --locked
 npm ci
-uv run playwright install chromium
+npx playwright install chromium
+uv run --locked playwright install chromium
 npm run build
 ```
 
@@ -50,7 +69,7 @@ Both proxy files are git-ignored because they may contain credentials.
 ## Run the local service
 
 ```powershell
-uv run proms
+uv run --locked proms
 ```
 
 The API listens on `http://127.0.0.1:8000` so it is not exposed to other
