@@ -60,7 +60,7 @@ machines by default.
 
 Open [http://127.0.0.1:8000/control/](http://127.0.0.1:8000/control/). Use **Local proxy files** to save static or rotating proxy lists on this computer. Drafts, saved values, and control requests never pass through Vercel. Existing values are never displayed; only counts are returned. Saving replaces only the selected ignored local file.
 
-[proms-rust.vercel.app](https://proms-rust.vercel.app) is an installer and documentation page. It cannot read or control the local service.
+[proms.brownsey.co.uk](https://proms.brownsey.co.uk) is an installer and documentation page. It cannot read or control the local service.
 
 Additional trusted loopback development origins can be supplied as a comma-separated list in `PROMS_ALLOWED_ORIGINS`. Non-loopback browser origins remain blocked and cannot read status, save proxies, launch windows, or close windows.
 

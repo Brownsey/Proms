@@ -6,7 +6,7 @@ from test_api import FakeLauncher, write_proxies
 
 from proms.app import create_app
 
-PRODUCTION_ORIGIN = "https://proms-rust.vercel.app"
+PRODUCTION_ORIGIN = "https://proms.brownsey.co.uk"
 
 
 def test_health_and_missing_or_empty_configuration_are_safe(tmp_path: Path) -> None:
