@@ -242,6 +242,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "playwright" },
+    { name = "starlette" },
     { name = "uvicorn" },
 ]
 
@@ -258,6 +259,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.116,<1" },
     { name = "playwright", specifier = ">=1.55,<2" },
+    { name = "starlette", specifier = ">=0.51" },
     { name = "uvicorn", specifier = ">=0.35,<1" },
 ]
 

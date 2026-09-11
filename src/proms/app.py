@@ -355,6 +355,7 @@ def create_app(
         allow_credentials=False,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type"],
+        allow_private_network=True,
     )
 
     @application.exception_handler(RequestValidationError)

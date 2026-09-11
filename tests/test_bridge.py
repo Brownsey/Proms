@@ -122,6 +122,37 @@ def test_allowed_production_origin_can_mutate_and_preflight(tmp_path: Path) -> N
     assert len(launcher.browsers) == 1
 
 
+def test_allowed_production_origin_can_preflight_private_network_health() -> None:
+    with TestClient(create_app()) as client:
+        response = client.options(
+            "/health",
+            headers={
+                "Origin": PRODUCTION_ORIGIN,
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Private-Network": "true",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == PRODUCTION_ORIGIN
+    assert response.headers["access-control-allow-private-network"] == "true"
+
+
+def test_disallowed_origin_cannot_preflight_private_network_health() -> None:
+    with TestClient(create_app()) as client:
+        response = client.options(
+            "/health",
+            headers={
+                "Origin": "https://evil.test",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Private-Network": "true",
+            },
+        )
+
+    assert response.status_code >= 400
+    assert "access-control-allow-origin" not in response.headers
+
+
 def test_disallowed_origin_cannot_launch_or_close_browsers(tmp_path: Path) -> None:
     static_file = tmp_path / "proxies.txt"
     write_proxies(static_file, "static.test:8001")
