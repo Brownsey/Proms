@@ -71,6 +71,7 @@ test("launches with an optional total cap", async ({ page }) => {
 
 test("omits the total cap when blank and validates both counts", async ({ page }) => {
   await connect(page);
+  await expect(page.getByLabel("Target URL")).toHaveValue("https://whatismyipaddress.com/");
   let body: unknown;
   await page.route(`${API}/browsers`, (route) => {
     if (route.request().method() !== "POST") return route.fallback();
@@ -78,7 +79,7 @@ test("omits the total cap when blank and validates both counts", async ({ page }
     return route.fulfill({ json: { launched: 6, active: 9 } });
   });
   await page.getByRole("button", { name: "Launch windows" }).click();
-  expect(body).toEqual({ windows_per_proxy: 1, url: "about:blank" });
+  expect(body).toEqual({ windows_per_proxy: 1, url: "https://whatismyipaddress.com/" });
   await page.getByLabel("Windows per proxy").fill("0");
   await page.getByRole("button", { name: "Launch windows" }).click();
   await expect(page.locator("p[role=alert]")).toContainText("Windows per proxy must be 1 or greater");
@@ -135,7 +136,7 @@ test("persists only nonsecret launch settings", async ({ page }) => {
   await page.reload();
   await expect(page.getByLabel("Windows per proxy")).toHaveValue("2");
   await expect(page.getByLabel("Maximum windows")).toHaveValue("50");
-  await expect(page.getByLabel("Target URL")).toHaveValue("about:blank");
+  await expect(page.getByLabel("Target URL")).toHaveValue("https://whatismyipaddress.com/");
 });
 
 test("removes legacy settings without retaining their secrets", async ({ page }) => {

@@ -40,6 +40,7 @@ DEFAULT_ALLOWED_ORIGINS = {
     "http://localhost:3000",
 }
 MAX_PROXY_REQUEST_BYTES = 1024 * 1024
+DEFAULT_TARGET_URL = "https://whatismyipaddress.com/"
 
 
 def _is_http_loopback_origin(origin: str) -> bool:
@@ -253,7 +254,7 @@ class LaunchRequest(BaseModel):
 
     windows_per_proxy: int = Field(default=1, ge=1, strict=True)
     max_windows: int | None = Field(default=None, ge=1, strict=True)
-    url: str = Field(default="about:blank", strict=True)
+    url: str = Field(default=DEFAULT_TARGET_URL, strict=True)
 
     @field_validator("url")
     @classmethod

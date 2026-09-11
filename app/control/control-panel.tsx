@@ -7,10 +7,11 @@ const API_URL = resolveApiUrl(process.env.NODE_ENV, process.env.NEXT_PUBLIC_PROM
 const API_LABEL = API_URL || "this local address";
 const STORAGE_KEY = "proms.launch-settings.v2";
 const LEGACY_STORAGE_KEY = "proms.launch-settings.v1";
+const DEFAULT_TARGET_URL = "https://whatismyipaddress.com/";
 type Settings = { windowsPerProxy: string; maxWindows: string; targetUrl: string };
 type Counts = { proxies: number | null; active: number | null };
 type Action = "connect" | "refresh" | "launch" | "close" | "save";
-const defaults: Settings = { windowsPerProxy: "1", maxWindows: "", targetUrl: "about:blank" };
+const defaults: Settings = { windowsPerProxy: "1", maxWindows: "", targetUrl: DEFAULT_TARGET_URL };
 
 function errorDetail(value: unknown): string | null {
   if (typeof value === "string") return value;

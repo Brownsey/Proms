@@ -138,10 +138,10 @@ def test_post_launches_requested_headed_browser_per_proxy(tmp_path: Path) -> Non
             {"server": "socks5://two.test:8002"},
         ]
         assert [browser.page_urls for browser in launcher.browsers] == [
-            ["about:blank"],
-            ["about:blank"],
-            ["about:blank"],
-            ["about:blank"],
+            ["about:blank", "https://whatismyipaddress.com/"],
+            ["about:blank", "https://whatismyipaddress.com/"],
+            ["about:blank", "https://whatismyipaddress.com/"],
+            ["about:blank", "https://whatismyipaddress.com/"],
         ]
         assert client.get("/browsers").json() == {"active": 4}
 
