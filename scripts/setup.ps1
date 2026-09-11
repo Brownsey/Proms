@@ -101,11 +101,9 @@ try {
     Invoke-Checked "uv" @("run", "--locked", "playwright", "install", "chromium")
     Invoke-Checked "npm" @("run", "build")
 
-    foreach ($proxyFile in @("proxies.txt", "rotating_proxies.txt")) {
-        $proxyPath = Join-Path $repoRoot $proxyFile
-        if (-not (Test-Path -LiteralPath $proxyPath)) {
-            New-Item -ItemType File -Path $proxyPath | Out-Null
-        }
+    $proxyPath = Join-Path $repoRoot "proxies.txt"
+    if (-not (Test-Path -LiteralPath $proxyPath)) {
+        New-Item -ItemType File -Path $proxyPath | Out-Null
     }
 
     Write-Output "READY: dependencies, Chromium, and the local control panel are installed"

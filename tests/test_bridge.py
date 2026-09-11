@@ -10,47 +10,35 @@ PRODUCTION_ORIGIN = "https://proms.brownsey.co.uk"
 
 
 def test_health_and_missing_or_empty_configuration_are_safe(tmp_path: Path) -> None:
-    static_file = tmp_path / "proxies.txt"
-    rotating_file = tmp_path / "rotating_proxies.txt"
-    static_file.write_text("\n# no configured proxies\n", encoding="utf-8")
-    app = create_app(proxy_file=static_file, rotating_proxy_file=rotating_file)
+    proxy_file = tmp_path / "proxies.txt"
+    proxy_file.write_text("\n# no configured proxies\n", encoding="utf-8")
+    app = create_app(proxy_file=proxy_file)
 
     with TestClient(app) as client:
         health = client.get("/health")
         configuration = client.get("/configuration")
 
     assert health.json() == {"status": "ok"}
-    assert configuration.json() == {
-        "static_proxy_count": 0,
-        "rotating_proxy_count": 0,
-    }
+    assert configuration.json() == {"proxy_count": 0}
 
 
 def test_configuration_returns_counts_without_proxy_values(tmp_path: Path) -> None:
-    static_file = tmp_path / "proxies.txt"
-    rotating_file = tmp_path / "rotating_proxies.txt"
-    write_proxies(static_file, "https://alice:secret@static.test:8001")
-    write_proxies(rotating_file, "rotate-one.test:9001", "rotate-two.test:9002")
-    app = create_app(proxy_file=static_file, rotating_proxy_file=rotating_file)
+    proxy_file = tmp_path / "proxies.txt"
+    write_proxies(proxy_file, "https://alice:secret@fixed.test:8001", "sticky.test:9001")
+    app = create_app(proxy_file=proxy_file)
 
     with TestClient(app) as client:
         response = client.get("/configuration")
 
-    assert response.json() == {
-        "static_proxy_count": 1,
-        "rotating_proxy_count": 2,
-    }
+    assert response.json() == {"proxy_count": 2}
     assert "secret" not in response.text
-    assert "static.test" not in response.text
+    assert "fixed.test" not in response.text
 
 
 def test_configuration_rejects_a_malformed_existing_file(tmp_path: Path) -> None:
     static_file = tmp_path / "proxies.txt"
     static_file.write_text("not-a-proxy", encoding="utf-8")
-    app = create_app(
-        proxy_file=static_file,
-        rotating_proxy_file=tmp_path / "missing-rotating.txt",
-    )
+    app = create_app(proxy_file=static_file)
 
     with TestClient(app) as client:
         response = client.get("/configuration")

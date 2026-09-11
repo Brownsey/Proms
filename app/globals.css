@@ -170,14 +170,9 @@ footer {
   background: var(--fog);
 }
 
-.orbit-static {
+.orbit-proxy {
   top: 12%;
   right: -6px;
-}
-
-.orbit-rotating {
-  bottom: 10%;
-  left: -5px;
 }
 
 .telemetry {

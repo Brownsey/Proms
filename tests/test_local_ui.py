@@ -45,7 +45,8 @@ def test_missing_ui_build_returns_safe_guidance_while_health_stays_usable(
     assert control.status_code == 503
     assert control.json() == {
         "detail": (
-            "Local control panel is not built. Run scripts/setup.ps1, then restart uv run proms."
+            "Local control panel is not built. Run scripts/setup.ps1 on Windows or "
+            "scripts/setup.sh on macOS, then restart uv run --locked proms."
         )
     }
     assert health.status_code == 200

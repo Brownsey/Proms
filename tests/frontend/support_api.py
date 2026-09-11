@@ -11,9 +11,6 @@ class FakePage:
     async def goto(self, url: str) -> None:
         del url
 
-    async def text_content(self, selector: str) -> None:
-        del selector
-
 
 class FakeBrowser:
     def __init__(self) -> None:
@@ -39,12 +36,11 @@ async def launch_browser(proxy: Mapping[str, str]) -> FakeBrowser:
 
 
 runtime_directory = TemporaryDirectory(prefix="proms-frontend-test-")
-static_proxy_file = Path(runtime_directory.name) / "static.txt"
-static_proxy_file.write_text("initial.test:9000\n", encoding="utf-8")
+proxy_file = Path(runtime_directory.name) / "proxies.txt"
+proxy_file.write_text("initial.test:9000\n", encoding="utf-8")
 
 app = create_app(
-    proxy_file=static_proxy_file,
-    rotating_proxy_file=Path(runtime_directory.name) / "rotating.txt",
+    proxy_file=proxy_file,
     launch_browser=launch_browser,
     allowed_origins=["http://127.0.0.1:3000"],
 )

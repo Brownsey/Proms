@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from ipaddress import ip_address
 from pathlib import Path
-from typing import Protocol, Self, cast
+from typing import Protocol, cast
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
@@ -22,7 +22,7 @@ from playwright.async_api import (
 from playwright.async_api import (
     ProxySettings as PlaywrightProxySettings,
 )
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from proms.proxies import (
     ProxyFileError,
@@ -74,8 +74,6 @@ def _is_http_loopback_origin(origin: str) -> bool:
 class Page(Protocol):
     async def goto(self, url: str) -> object: ...
 
-    async def text_content(self, selector: str) -> str | None: ...
-
 
 class Browser(Protocol):
     def is_connected(self) -> bool: ...
@@ -99,8 +97,6 @@ class BrowserCloseError(RuntimeError):
 @dataclass
 class BrowserRecord:
     browser: Browser
-    rotating: bool = False
-    rotating_ip: str | None = None
 
 
 class BrowserManager:
@@ -127,20 +123,14 @@ class BrowserManager:
         windows_per_proxy: int,
         *,
         url: str = "about:blank",
-        rotating_proxies: list[ProxySettings] | None = None,
-        rotating_windows_per_proxy: int = 0,
-        rotation_attempts: int = 5,
-        ip_check_url: str = "https://api64.ipify.org",
+        max_windows: int | None = None,
     ) -> int:
         async with self._operation_lock:
             return await self._launch_transaction(
                 proxies,
                 windows_per_proxy,
                 url=url,
-                rotating_proxies=rotating_proxies,
-                rotating_windows_per_proxy=rotating_windows_per_proxy,
-                rotation_attempts=rotation_attempts,
-                ip_check_url=ip_check_url,
+                max_windows=max_windows,
             )
 
     async def _launch_transaction(
@@ -149,73 +139,23 @@ class BrowserManager:
         windows_per_proxy: int,
         *,
         url: str,
-        rotating_proxies: list[ProxySettings] | None,
-        rotating_windows_per_proxy: int,
-        rotation_attempts: int,
-        ip_check_url: str,
+        max_windows: int | None,
     ) -> int:
         owned: list[BrowserRecord] = []
         retained = 0
         try:
-            if rotating_proxies:
-                self.active()
-                unknown_ips = sum(
-                    record.rotating and record.rotating_ip is None for record in self._browsers
-                )
-                if unknown_ips:
-                    raise RuntimeError(
-                        f"Cannot launch rotating browsers: {unknown_ips} active rotating "
-                        "browser(s) have an unknown IP; DELETE /browsers to retry cleanup"
-                    )
-
-            for proxy in proxies:
-                for _ in range(windows_per_proxy):
+            for _ in range(windows_per_proxy):
+                for proxy in proxies:
+                    if max_windows is not None and len(owned) >= max_windows:
+                        break
                     browser = await self._launch(proxy)
                     record = BrowserRecord(browser)
                     owned.append(record)
                     page = await browser.new_page()
                     if url != "about:blank":
                         await page.goto(url)
-
-            if rotating_proxies:
-                self.active()
-                used_ips = {
-                    record.rotating_ip
-                    for record in self._browsers
-                    if record.rotating_ip is not None
-                }
-                for proxy in rotating_proxies:
-                    for _ in range(rotating_windows_per_proxy):
-                        last_error = "IP check failed"
-                        for _ in range(rotation_attempts):
-                            browser = await self._launch(proxy)
-                            record = BrowserRecord(browser, rotating=True)
-                            owned.append(record)
-                            page = await browser.new_page()
-                            try:
-                                await page.goto(ip_check_url)
-                                body = await page.text_content("body")
-                                observed_ip = str(ip_address((body or "").strip()))
-                                record.rotating_ip = observed_ip
-                                if observed_ip in used_ips:
-                                    raise ValueError(f"duplicate IP: {observed_ip}")
-                            except Exception as error:
-                                last_error = str(error)
-                                _, rejected_retained = await self._cleanup_owned([record], owned)
-                                retained += rejected_retained
-                                if rejected_retained:
-                                    raise RuntimeError(
-                                        "Unable to close rejected rotating browser"
-                                    ) from error
-                                continue
-                            await page.goto(url)
-                            used_ips.add(observed_ip)
-                            break
-                        else:
-                            raise RuntimeError(
-                                "Unable to obtain a unique IP after "
-                                f"{rotation_attempts} attempts: {last_error}"
-                            )
+                if max_windows is not None and len(owned) >= max_windows:
+                    break
 
             launched = len(owned)
             self._browsers.extend(owned)
@@ -309,11 +249,11 @@ class BrowserManager:
 
 
 class LaunchRequest(BaseModel):
-    windows_per_proxy: int | None = Field(default=None, ge=1, strict=True)
-    static_windows_per_proxy: int = Field(default=0, ge=0, strict=True)
-    rotating_windows_per_proxy: int = Field(default=0, ge=0, strict=True)
+    model_config = ConfigDict(extra="forbid")
+
+    windows_per_proxy: int = Field(default=1, ge=1, strict=True)
+    max_windows: int | None = Field(default=None, ge=1, strict=True)
     url: str = Field(default="about:blank", strict=True)
-    rotation_attempts: int = Field(default=5, ge=1, le=20, strict=True)
 
     @field_validator("url")
     @classmethod
@@ -334,22 +274,10 @@ class LaunchRequest(BaseModel):
             raise ValueError("url must be an absolute HTTP(S) URL or about:blank")
         return value
 
-    @model_validator(mode="after")
-    def validate_launch_mode(self) -> Self:
-        new_fields = {"static_windows_per_proxy", "rotating_windows_per_proxy"}
-        if self.windows_per_proxy is not None:
-            if self.model_fields_set & new_fields:
-                raise ValueError("windows_per_proxy cannot be combined with new window counts")
-        elif self.static_windows_per_proxy == 0 and self.rotating_windows_per_proxy == 0:
-            raise ValueError("at least one window count must be greater than zero")
-        return self
-
 
 def create_app(
     *,
     proxy_file: Path = Path("proxies.txt"),
-    rotating_proxy_file: Path = Path("rotating_proxies.txt"),
-    ip_check_url: str = "https://api64.ipify.org",
     launch_browser: LaunchBrowser | None = None,
     allowed_origins: Iterable[str] | None = None,
     ui_build_path: Path = Path(".next"),
@@ -413,8 +341,8 @@ def create_app(
             raise HTTPException(
                 status_code=503,
                 detail=(
-                    "Local control panel is not built. Run scripts/setup.ps1, "
-                    "then restart uv run proms."
+                    "Local control panel is not built. Run scripts/setup.ps1 on Windows or "
+                    "scripts/setup.sh on macOS, then restart uv run --locked proms."
                 ),
             )
         return FileResponse(control_html, media_type="text/html")
@@ -427,10 +355,7 @@ def create_app(
     async def configuration() -> dict[str, int]:
         try:
             async with proxy_file_lock:
-                return {
-                    "static_proxy_count": count_configured_proxies(proxy_file),
-                    "rotating_proxy_count": count_configured_proxies(rotating_proxy_file),
-                }
+                return {"proxy_count": count_configured_proxies(proxy_file)}
         except ProxyFileError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -455,22 +380,19 @@ def create_app(
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise HTTPException(status_code=400, detail="Malformed JSON request") from error
 
-        allowed_fields = {"mode", "proxies", "confirm_clear"}
+        allowed_fields = {"proxies", "confirm_clear"}
         if (
             type(payload) is not dict
-            or not {"mode", "proxies"}.issubset(payload)
+            or "proxies" not in payload
             or not set(payload).issubset(allowed_fields)
         ):
             raise HTTPException(
                 status_code=400,
-                detail="Request must contain mode, proxies, and optional confirm_clear only",
+                detail="Request must contain proxies and optional confirm_clear only",
             )
 
-        mode = payload["mode"]
         contents = payload["proxies"]
         confirm_clear = payload.get("confirm_clear", False)
-        if type(mode) is not str or mode not in {"static", "rotating"}:
-            raise HTTPException(status_code=400, detail="mode must be static or rotating")
         if type(contents) is not str:
             raise HTTPException(status_code=400, detail="proxies must be a string")
         if type(confirm_clear) is not bool:
@@ -486,34 +408,26 @@ def create_app(
                 detail="confirm_clear must be true to save an empty proxy list",
             )
 
-        destination = proxy_file if mode == "static" else rotating_proxy_file
         try:
             async with proxy_file_lock:
-                replace_proxy_file(destination, contents)
+                replace_proxy_file(proxy_file, contents)
         except (OSError, UnicodeError) as error:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unable to save {mode} proxy configuration",
+                detail="Unable to save proxy configuration",
             ) from error
-        return {"mode": mode, "count": len(proxies)}
+        return {"count": len(proxies)}
 
     @application.post("/browsers")
     async def launch_browsers(request: LaunchRequest) -> dict[str, int]:
         try:
-            static_count = request.windows_per_proxy or request.static_windows_per_proxy
             async with proxy_file_lock:
-                static_proxies = load_proxies(proxy_file) if static_count else []
-                rotating_proxies = (
-                    load_proxies(rotating_proxy_file) if request.rotating_windows_per_proxy else []
-                )
+                proxies = load_proxies(proxy_file)
             launched = await manager.launch(
-                static_proxies,
-                static_count,
+                proxies,
+                request.windows_per_proxy,
                 url=request.url,
-                rotating_proxies=rotating_proxies,
-                rotating_windows_per_proxy=request.rotating_windows_per_proxy,
-                rotation_attempts=request.rotation_attempts,
-                ip_check_url=ip_check_url,
+                max_windows=request.max_windows,
             )
         except (ProxyFileError, BrowserLaunchError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error

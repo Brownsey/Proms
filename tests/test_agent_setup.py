@@ -80,7 +80,7 @@ def test_agent_instructions_define_the_safe_automated_setup_flow() -> None:
     assert "-CheckOnly" in instructions
     assert "Always run the full idempotent setup command" in instructions
     assert "Never open or read proxy files" in instructions
-    assert "numeric counts from `GET /configuration`" in instructions
+    assert "numeric count from `GET /configuration`" in instructions
     assert "uv run --locked proms" in instructions
     assert "Never print, commit, or upload proxy values" in instructions
     assert "npm run verify" in instructions
@@ -93,7 +93,10 @@ def test_setup_refreshes_path_without_overwriting_process_specific_entries() -> 
     assert "setx" not in script.lower()
 
 
-def test_full_setup_builds_local_control_ui_and_preserves_proxy_files(tmp_path: Path) -> None:
+@pytest.mark.parametrize("proxy_contents", [None, "preserve-proxies.txt\n"])
+def test_full_setup_builds_local_control_ui_and_handles_proxy_file(
+    tmp_path: Path, proxy_contents: str | None
+) -> None:
     shell = shutil.which("pwsh") or shutil.which("powershell")
     assert shell is not None
 
@@ -103,8 +106,8 @@ def test_full_setup_builds_local_control_ui_and_preserves_proxy_files(tmp_path: 
     shutil.copy2(ROOT / "scripts" / "setup.ps1", scripts / "setup.ps1")
     for name in ("pyproject.toml", "uv.lock", "package.json", "package-lock.json"):
         (repo / name).write_text("fixture", encoding="utf-8")
-    for name in ("proxies.txt", "rotating_proxies.txt"):
-        (repo / name).write_text(f"preserve-{name}\n", encoding="utf-8")
+    if proxy_contents is not None:
+        (repo / "proxies.txt").write_text(proxy_contents, encoding="utf-8")
 
     command_log = tmp_path / "commands.log"
     fake_bin = tmp_path / "bin"
@@ -143,16 +146,14 @@ def test_full_setup_builds_local_control_ui_and_preserves_proxy_files(tmp_path: 
         "uv run --locked playwright install chromium",
         "npm run build",
     ]
-    assert (repo / "proxies.txt").read_text(encoding="utf-8") == "preserve-proxies.txt\n"
-    assert (repo / "rotating_proxies.txt").read_text(encoding="utf-8") == (
-        "preserve-rotating_proxies.txt\n"
-    )
+    assert (repo / "proxies.txt").read_text(encoding="utf-8") == (proxy_contents or "")
     assert "uv run --locked proms" in result.stdout
     assert "http://127.0.0.1:8000/control/" in result.stdout
 
 
-def test_posix_setup_installs_with_brew_builds_ui_and_preserves_proxy_files(
-    tmp_path: Path,
+@pytest.mark.parametrize("proxy_contents", [None, "preserve-proxies.txt\n"])
+def test_posix_setup_installs_with_brew_builds_ui_and_handles_proxy_file(
+    tmp_path: Path, proxy_contents: str | None
 ) -> None:
     shell = working_bash()
     repo = tmp_path / "repo"
@@ -161,7 +162,8 @@ def test_posix_setup_installs_with_brew_builds_ui_and_preserves_proxy_files(
     shutil.copy2(ROOT / "scripts" / "setup.sh", scripts / "setup.sh")
     for name in ("pyproject.toml", "uv.lock", "package.json", "package-lock.json"):
         (repo / name).write_text("fixture", encoding="utf-8")
-    (repo / "proxies.txt").write_text("preserve-proxies.txt\n", encoding="utf-8")
+    if proxy_contents is not None:
+        (repo / "proxies.txt").write_text(proxy_contents, encoding="utf-8")
 
     command_log = tmp_path / "commands.log"
     fake_bin = tmp_path / "bin"
@@ -224,8 +226,7 @@ def test_posix_setup_installs_with_brew_builds_ui_and_preserves_proxy_files(
         "uv run --locked playwright install chromium",
         "npm run build",
     ]
-    assert (repo / "proxies.txt").read_text(encoding="utf-8") == "preserve-proxies.txt\n"
-    assert (repo / "rotating_proxies.txt").read_text(encoding="utf-8") == ""
+    assert (repo / "proxies.txt").read_text(encoding="utf-8") == (proxy_contents or "")
     assert "uv run --locked proms" in result.stdout
     assert "http://127.0.0.1:8000/control/" in result.stdout
 

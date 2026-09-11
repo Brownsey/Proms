@@ -101,11 +101,9 @@ npx playwright install chromium
 uv run --locked playwright install chromium
 npm run build
 
-for proxy_file in proxies.txt rotating_proxies.txt; do
-  if [[ ! -e "$repo_root/$proxy_file" ]]; then
-    : > "$repo_root/$proxy_file"
-  fi
-done
+if [[ ! -e "$repo_root/proxies.txt" ]]; then
+  : > "$repo_root/proxies.txt"
+fi
 
 echo "READY: dependencies, Chromium, and the local control panel are installed"
 echo "NEXT: run 'uv run --locked proms', then open http://127.0.0.1:8000/control/"

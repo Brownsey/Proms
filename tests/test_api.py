@@ -133,8 +133,8 @@ def test_post_launches_requested_headed_browser_per_proxy(tmp_path: Path) -> Non
         assert response.json() == {"launched": 4, "active": 4}
         assert launcher.proxies == [
             {"server": "http://one.test:8001"},
-            {"server": "http://one.test:8001"},
             {"server": "socks5://two.test:8002"},
+            {"server": "http://one.test:8001"},
             {"server": "socks5://two.test:8002"},
         ]
         assert [browser.page_urls for browser in launcher.browsers] == [
@@ -144,6 +144,157 @@ def test_post_launches_requested_headed_browser_per_proxy(tmp_path: Path) -> Non
             ["about:blank"],
         ]
         assert client.get("/browsers").json() == {"active": 4}
+
+
+def test_max_windows_caps_launch_and_prioritises_unique_proxies(tmp_path: Path) -> None:
+    proxy_file = tmp_path / "proxies.txt"
+    write_proxies(proxy_file, *(f"proxy-{index}.test:8000" for index in range(90)))
+    launcher = FakeLauncher()
+
+    with TestClient(create_app(proxy_file=proxy_file, launch_browser=launcher)) as client:
+        response = client.post("/browsers", json={"windows_per_proxy": 2, "max_windows": 50})
+
+    assert response.json() == {"launched": 50, "active": 50}
+    assert launcher.proxies == [
+        {"server": f"http://proxy-{index}.test:8000"} for index in range(50)
+    ]
+
+
+@pytest.mark.parametrize("max_windows", [0, -1, True, "50"])
+def test_max_windows_requires_a_positive_json_integer(tmp_path: Path, max_windows: object) -> None:
+    proxy_file = tmp_path / "proxies.txt"
+    write_proxies(proxy_file, "one.test:8001")
+    launcher = FakeLauncher()
+
+    with TestClient(create_app(proxy_file=proxy_file, launch_browser=launcher)) as client:
+        response = client.post(
+            "/browsers", json={"windows_per_proxy": 1, "max_windows": max_windows}
+        )
+
+    assert response.status_code == 400
+    assert launcher.proxies == []
+
+
+@pytest.mark.asyncio
+async def test_max_windows_stops_before_reiterating_the_proxy_list() -> None:
+    class SinglePassProxies(list[dict[str, str]]):
+        def __init__(self) -> None:
+            super().__init__([{"server": "http://one.test:8001"}])
+            self.iterations = 0
+
+        def __iter__(self):
+            self.iterations += 1
+            if self.iterations > 1:
+                raise AssertionError("proxy list was iterated after the cap was reached")
+            return super().__iter__()
+
+    proxies = SinglePassProxies()
+    launcher = FakeLauncher()
+    manager = BrowserManager(launcher)
+
+    launched = await manager.launch(proxies, 1_000_000_000, max_windows=1)
+
+    assert launched == 1
+    assert proxies.iterations == 1
+    assert launcher.proxies == [{"server": "http://one.test:8001"}]
+    await manager.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_launch_cancellation_rolls_back_owned_browser() -> None:
+    launch_entered = asyncio.Event()
+    release_launch = asyncio.Event()
+    launcher = FakeLauncher()
+    launcher.launch_waits = {2: (launch_entered, release_launch)}
+    manager = BrowserManager(launcher)
+    task = asyncio.create_task(
+        manager.launch([{"server": "http://one.test:8001"}, {"server": "http://two.test:8002"}], 1)
+    )
+    await launch_entered.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert launcher.browsers[0].closed
+    assert manager.active() == 0
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_new_page_closes_owned_browser() -> None:
+    page_entered = asyncio.Event()
+    release_page = asyncio.Event()
+    launcher = FakeLauncher()
+    launcher.new_page_waits = {1: (page_entered, release_page)}
+    manager = BrowserManager(launcher)
+    task = asyncio.create_task(manager.launch([{"server": "http://one.test:8001"}], 1))
+    await page_entered.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert launcher.browsers[0].closed
+    assert manager.active() == 0
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_rollback_waits_for_cleanup() -> None:
+    close_entered = asyncio.Event()
+    release_close = asyncio.Event()
+    launcher = FakeLauncher()
+    launcher.fail_on_call = 2
+    launcher.close_waits = {1: (close_entered, release_close)}
+    manager = BrowserManager(launcher)
+    task = asyncio.create_task(
+        manager.launch([{"server": "http://one.test:8001"}, {"server": "http://two.test:8002"}], 1)
+    )
+    await close_entered.wait()
+
+    task.cancel()
+    release_close.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert all(browser.closed for browser in launcher.browsers)
+    assert manager.active() == 0
+
+
+@pytest.mark.asyncio
+async def test_close_all_cancellation_retains_connected_failure_for_retry() -> None:
+    close_entered = asyncio.Event()
+    release_close = asyncio.Event()
+    launcher = FakeLauncher()
+    launcher.close_errors = {1: "connected"}
+    launcher.close_waits = {1: (close_entered, release_close)}
+    manager = BrowserManager(launcher)
+    await manager.launch([{"server": "http://one.test:8001"}], 1)
+    task = asyncio.create_task(manager.close_all())
+    await close_entered.wait()
+
+    task.cancel()
+    release_close.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert manager.active() == 1
+    launcher.browsers[0].close_error = None
+    assert await manager.close_all() == 1
+
+
+@pytest.mark.asyncio
+async def test_close_boundary_cancellation_is_retained_and_re_raised() -> None:
+    launcher = FakeLauncher()
+    launcher.close_errors = {1: "cancelled"}
+    manager = BrowserManager(launcher)
+    await manager.launch([{"server": "http://one.test:8001"}], 1)
+
+    with pytest.raises(asyncio.CancelledError):
+        await manager.close_all()
+
+    assert manager.active() == 1
+    launcher.browsers[0].close_error = None
+    assert await manager.close_all() == 1
 
 
 def test_post_reads_proxy_file_again_for_each_request(tmp_path: Path) -> None:
@@ -424,3 +575,25 @@ def test_windows_per_proxy_requires_a_json_integer(tmp_path: Path) -> None:
     with TestClient(app) as client:
         assert client.post("/browsers", json={"windows_per_proxy": True}).status_code == 400
         assert client.post("/browsers", json={"windows_per_proxy": "2"}).status_code == 400
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"static_windows_per_proxy": 1, "url": "about:blank"},
+        {"rotating_windows_per_proxy": 1, "url": "about:blank"},
+        {"windows_per_proxy": 1, "rotation_attempts": 5},
+    ],
+)
+def test_launch_rejects_legacy_mode_specific_fields(
+    tmp_path: Path, body: dict[str, object]
+) -> None:
+    proxy_file = tmp_path / "proxies.txt"
+    write_proxies(proxy_file, "one.test:8001")
+    launcher = FakeLauncher()
+
+    with TestClient(create_app(proxy_file=proxy_file, launch_browser=launcher)) as client:
+        response = client.post("/browsers", json=body)
+
+    assert response.status_code == 400
+    assert launcher.proxies == []

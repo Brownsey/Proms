@@ -14,7 +14,7 @@ export const CODEX_SETUP_PROMPT = [
   "On macOS, run the full idempotent setup command: bash scripts/setup.sh",
   "Start uv run --locked proms persistently.",
   "Verify GET http://127.0.0.1:8000/health.",
-  "Read only the numeric counts from GET http://127.0.0.1:8000/configuration.",
+  "Read only the numeric count from GET http://127.0.0.1:8000/configuration.",
   "Open http://127.0.0.1:8000/control/ and report the result.",
 ].join("\n");
 

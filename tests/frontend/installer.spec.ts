@@ -13,7 +13,7 @@ const PROMPT = [
   "On macOS, run the full idempotent setup command: bash scripts/setup.sh",
   "Start uv run --locked proms persistently.",
   "Verify GET http://127.0.0.1:8000/health.",
-  "Read only the numeric counts from GET http://127.0.0.1:8000/configuration.",
+  "Read only the numeric count from GET http://127.0.0.1:8000/configuration.",
   "Open http://127.0.0.1:8000/control/ and report the result.",
 ].join("\n");
 
@@ -52,7 +52,7 @@ test("presents the public page as an installation handoff without local controls
   await expect(page.getByRole("textbox", { name: "Codex setup prompt" })).toHaveValue(PROMPT);
   await expect(page.getByRole("textbox", { name: "Codex setup prompt" })).toHaveAttribute("readonly", "");
   await expect(page.getByText("Paste into a Codex task on this computer.", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("Static proxies", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Proxies", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Launch windows" })).toHaveCount(0);
 });
 

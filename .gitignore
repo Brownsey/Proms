@@ -10,6 +10,5 @@ test-results/
 *.tsbuildinfo
 
 # Private proxy credentials
-proxies.txt
-rotating_proxies.txt
+*proxies.txt
 .env*

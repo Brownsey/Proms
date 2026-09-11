@@ -15,9 +15,9 @@ When asked to install, configure, or run Proms:
 1. Work from the repository root.
 2. Never open or read proxy files. Never print, commit, or upload proxy values. Never copy them into tests, commands, logs, or agent messages.
 3. `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1 -CheckOnly` is an optional, read-only prerequisite diagnostic. It does not prove repository dependencies or Chromium are installed.
-4. Always run the full idempotent setup command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1`. This installs missing `uv` and Node.js LTS through `winget`, restores locked Python/npm dependencies, installs both required Playwright Chromium revisions, builds the local control panel, and creates empty ignored proxy files when absent. An OS approval prompt may still require the user.
+4. Always run the full idempotent setup command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1`. This installs missing `uv` and Node.js LTS through `winget`, restores locked Python/npm dependencies, installs both required Playwright Chromium revisions, builds the local control panel, and creates an empty ignored `proxies.txt` when absent. An OS approval prompt may still require the user.
 5. Start the loopback service with `uv run --locked proms` and confirm `GET http://127.0.0.1:8000/health`.
-6. Read only the numeric counts from `GET /configuration`. If both counts are zero, direct the user to the local control panel's **Local proxy files** section; never inspect the files or ask them to paste credentials into chat.
+6. Read only the numeric count from `GET /configuration`. If it is zero, direct the user to the local control panel's **Local proxy file** section; never inspect the file or ask them to paste credentials into chat.
 7. Direct the user to `http://127.0.0.1:8000/control/`. All controls and proxy drafts stay local; existing proxy values are never displayed.
 8. Run `npm run verify` after repository changes.
 
@@ -30,8 +30,8 @@ When asked to install, configure, or run Proms on macOS:
 1. State that macOS support is currently untested and requires macOS 14 Sonoma or newer plus a logged-in GUI session.
 2. Never open or read proxy files. Never print, commit, or upload proxy values.
 3. `bash scripts/setup.sh --check-only` is an optional, read-only prerequisite diagnostic. It does not install dependencies or Chromium.
-4. Always run the full idempotent setup command: `bash scripts/setup.sh`. It finds the repository root, uses Homebrew for missing `uv` and Node.js 24 LTS, restores locked Python/npm dependencies, installs both required Playwright Chromium revisions, builds the local control panel, and creates empty ignored proxy files only when absent.
+4. Always run the full idempotent setup command: `bash scripts/setup.sh`. It finds the repository root, uses Homebrew for missing `uv` and Node.js 24 LTS, restores locked Python/npm dependencies, installs both required Playwright Chromium revisions, builds the local control panel, and creates an empty ignored `proxies.txt` only when absent.
 5. If Homebrew is unavailable and a tool is missing, direct the user to [brew.sh](https://brew.sh), then rerun setup.
 6. Start the loopback service with `uv run --locked proms` and confirm `GET http://127.0.0.1:8000/health`.
-7. Read only numeric counts from `GET /configuration`; never inspect proxy files or ask the user to paste credentials into chat.
+7. Read only the numeric count from `GET /configuration`; never inspect proxy files or ask the user to paste credentials into chat.
 8. Direct the user to `http://127.0.0.1:8000/control/` and run `npm run verify` after repository changes.

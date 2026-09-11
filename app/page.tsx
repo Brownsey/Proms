@@ -94,7 +94,7 @@ export default function Installer() {
       </div>
 
       <footer className="installer-footer">
-        <p>Proms runs Chromium and manages proxy files from your Windows or macOS computer.</p>
+        <p>Proms runs Chromium and manages its local proxy file from your Windows or macOS computer.</p>
         <p>The hosted guide never connects to your local service.</p>
       </footer>
     </main>
