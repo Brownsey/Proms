@@ -264,7 +264,11 @@ export default function Dashboard() {
                   <div className="proxy-editor">
                     <label htmlFor="proxies">Proxies</label>
                     <textarea id="proxies" rows={6} autoComplete="off" autoCapitalize="none" spellCheck={false} aria-describedby="proxies-help" value={draft} onChange={(event) => { setDraft(event.target.value); setError(""); }} />
-                    <small id="proxies-help">One proxy per line. Blank lines and # comments are ignored.</small>
+                    <small id="proxies-help">
+                      One proxy per line, including username:password@host:port. Blank lines and #
+                      comments are ignored. Use an http:// prefix when the password contains a
+                      colon.
+                    </small>
                     <button className="save-list-button" type="button" onClick={saveProxies} disabled={!connected || busy}>
                       {action === "save" ? "Saving…" : "Save proxy list"}
                     </button>

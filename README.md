@@ -59,9 +59,12 @@ beginning with `#` are ignored. Supported formats:
 host:port
 http://host:port
 http://username:password@host:port
+username:password@host:port
 host:port:username:password
 socks5://host:port
 ```
+
+For backward compatibility, four-part values with a numeric second segment use `host:port:username:password`. A colon-containing password in `username:password@host:port` must use an explicit `http://` prefix.
 
 The proxy file is git-ignored because it may contain credentials.
 

@@ -35,6 +35,11 @@ def _host(value: str, line_number: int) -> str:
 
 
 def _parse_proxy(value: str, line_number: int) -> ProxySettings:
+    parts = value.split(":")
+    is_four_part = len(parts) == 4 and parts[1].isdigit()
+    if "://" not in value and "@" in value and not is_four_part:
+        return _parse_proxy(f"http://{value}", line_number)
+
     if "://" in value:
         try:
             parsed = urlsplit(value)
@@ -62,7 +67,6 @@ def _parse_proxy(value: str, line_number: int) -> ProxySettings:
             settings.update(username=unquote(username), password=unquote(password))
         return settings
 
-    parts = value.split(":")
     if len(parts) not in {2, 4}:
         raise ProxyFileError(
             f"Invalid proxy on line {line_number}: expected host:port or host:port:user:pass"

@@ -18,7 +18,11 @@ def client_for(tmp_path: Path) -> tuple[TestClient, Path]:
 def test_save_proxy_list_replaces_list_and_refreshes_count(tmp_path: Path) -> None:
     client, proxy_file = client_for(tmp_path)
     proxy_file.write_text("old.test:7001\n", encoding="utf-8")
-    submitted = "# local examples\none.test:8001\n\nhttps://user:placeholder@two.test:8002\n"
+    submitted = (
+        "# local examples\none.test:8001\n\n"
+        "https://user:placeholder@two.test:8002\n"
+        "synthetic-user:synthetic-pass@provider.test:9000\n"
+    )
 
     with client:
         response = client.post(
@@ -29,12 +33,12 @@ def test_save_proxy_list_replaces_list_and_refreshes_count(tmp_path: Path) -> No
         configuration = client.get("/configuration")
 
     assert response.status_code == 200
-    assert response.json() == {"count": 2}
+    assert response.json() == {"count": 3}
     assert response.headers["access-control-allow-origin"] == LOCAL_CONTROL_ORIGIN
     assert response.headers["vary"] == "Origin"
     assert "access-control-allow-credentials" not in response.headers
     assert proxy_file.read_text(encoding="utf-8") == submitted
-    assert configuration.json() == {"proxy_count": 2}
+    assert configuration.json() == {"proxy_count": 3}
 
 
 @pytest.mark.parametrize("submitted", ["", "\n# keep no proxies here\n"])
