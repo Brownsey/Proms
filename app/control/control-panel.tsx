@@ -288,6 +288,7 @@ export default function Dashboard() {
           </div>
         </form>
         <footer>
+          <p>Every window gets a fresh temporary Chromium profile. Cookies and site storage are not shared with other windows or later launch jobs.</p>
           <p>Launch settings stay in this browser. Proxy values and service secrets are never persisted here.</p>
           <p>Control requests stay between this page and the local service.</p>
         </footer>

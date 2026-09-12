@@ -160,6 +160,51 @@ def test_max_windows_caps_launch_and_prioritises_unique_proxies(tmp_path: Path) 
     ]
 
 
+@pytest.mark.asyncio
+async def test_each_window_gets_a_fresh_nonpersistent_browser_across_launch_jobs(
+    monkeypatch,
+) -> None:
+    import proms.app as app_module
+
+    class FakeChromium:
+        def __init__(self) -> None:
+            self.browsers: list[FakeBrowser] = []
+
+        async def launch(self, **_: object) -> FakeBrowser:
+            browser = FakeBrowser()
+            self.browsers.append(browser)
+            return browser
+
+        async def launch_persistent_context(self, *_: object, **__: object) -> None:
+            raise AssertionError("persistent Chromium profiles must not be used")
+
+    class FakePlaywright:
+        def __init__(self) -> None:
+            self.chromium = FakeChromium()
+
+        async def stop(self) -> None:
+            pass
+
+    runtime = FakePlaywright()
+
+    class FakeStarter:
+        async def start(self) -> FakePlaywright:
+            return runtime
+
+    monkeypatch.setattr(app_module, "async_playwright", lambda: FakeStarter())
+    manager = BrowserManager()
+
+    await manager.launch(
+        [{"server": "http://one.test:8001"}, {"server": "http://two.test:8002"}],
+        1,
+    )
+    await manager.launch([{"server": "http://one.test:8001"}], 1)
+
+    assert len(runtime.chromium.browsers) == 3
+    assert len({id(browser) for browser in runtime.chromium.browsers}) == 3
+    await manager.shutdown()
+
+
 @pytest.mark.parametrize("max_windows", [0, -1, True, "50"])
 def test_max_windows_requires_a_positive_json_integer(tmp_path: Path, max_windows: object) -> None:
     proxy_file = tmp_path / "proxies.txt"

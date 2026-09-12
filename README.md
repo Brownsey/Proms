@@ -111,6 +111,8 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8000/browsers `
 
 `windows_per_proxy` applies to every proxy line. Optional `max_windows` caps the total. Launching proceeds once through every proxy before starting a second window per proxy, so a cap uses as many unique proxy lines as possible.
 
+Every window uses a fresh temporary Chromium profile and browser context. Cookies and site storage are not shared between windows or reused by later launch jobs.
+
 Check or close active windows:
 
 ```powershell

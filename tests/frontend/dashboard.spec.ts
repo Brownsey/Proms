@@ -33,6 +33,11 @@ test("connects and exposes one confidential proxy list", async ({ page }) => {
   await connect(page);
   await expect(page.getByText("Proxies", { exact: true }).locator("..").locator("dd")).toHaveText("6");
   await expect(page.getByText(/controls and proxy drafts stay on this PC/i)).toBeVisible();
+  await expect(
+    page.getByText(
+      /fresh temporary Chromium profile\. Cookies and site storage are not shared with other windows or later launch jobs\./i,
+    ),
+  ).toBeVisible();
   await page.getByText("Local proxy file", { exact: true }).click();
   await expect(page.getByText(/fixed proxies and sticky-session proxy credentials are accepted/i)).toBeVisible();
   await expect(page.getByLabel("Proxies", { exact: true })).toBeEditable();
