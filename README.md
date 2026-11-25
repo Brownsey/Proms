@@ -33,13 +33,13 @@ bash scripts/setup.sh
 
 ### 3. Start Proms
 
-From the repository root, run:
+From the repository root, run this in the first terminal:
 
 ```sh
-uv run --locked proms
+uv run --locked python -m proms
 ```
 
-Leave this terminal running and open the [local control panel](http://127.0.0.1:8000/control/). You can also run CLI commands in a second terminal from the same repository root. Press **Ctrl+C** in the service terminal to stop Proms and close its windows.
+Wait until the terminal shows `Uvicorn running on http://127.0.0.1:8000`. Leave it running and open the [local control panel](http://127.0.0.1:8000/control/) or use a second terminal for CLI commands. Press **Ctrl+C** in the service terminal to stop Proms and close its windows.
 
 ## Open eight Chrome profiles with no proxy
 
@@ -52,17 +52,23 @@ Leave this terminal running and open the [local control panel](http://127.0.0.1:
 
 **CLI**
 
-With Proms running, open a second terminal in the repository root.
+With the service running in the first terminal, open a second terminal in the repository root.
 
 ```sh
-uv run --locked proms launch --direct 8 --chrome --url about:blank
+uv run --locked python -m proms launch --direct 8 --chrome --url about:blank
 ```
 
-Replace `about:blank` with your test URL when needed. Check the active windows with `uv run --locked proms status`. When you’re done, run `uv run --locked proms close` to close all windows opened by Proms.
+Pass a URL in quotes to open that page in each window:
 
-Use `uv run --locked proms launch --help` for launch options. If your system blocks the generated `proms` executable, use `uv run --locked python -m proms` with the same arguments.
+```sh
+uv run --locked python -m proms launch --direct 8 --chrome --url "https://example.com/"
+```
+
+Check the active windows with `uv run --locked python -m proms status`. When you're done, run `uv run --locked python -m proms close` to close all windows opened by Proms. Run `uv run --locked python -m proms launch --help` for all launch options.
 
 In Chrome mode, each window uses a fresh profile directory. Closing the window removes its profile, so cookies and sign-ins start fresh in later launches. Direct launches work with an empty or missing proxy file. The control panel starts in **Saved proxies** mode and remembers the connection mode you select.
+
+To verify profile isolation, open `chrome://version` in two or more launched windows and compare **Profile Path**. The full paths should differ even if they all end in `Default`.
 
 ## Launch with saved proxies
 
@@ -71,7 +77,7 @@ In the control panel, open **Local proxy file**, enter one proxy per line, and s
 The CLI uses the same saved list. This example opens up to eight Chrome windows, with two per proxy:
 
 ```sh
-uv run --locked proms launch --chrome --windows-per-proxy 2 --max-windows 8 --url about:blank
+uv run --locked python -m proms launch --chrome --windows-per-proxy 2 --max-windows 8 --url about:blank
 ```
 
 The local proxy file is git-ignored. Saving from the panel replaces the list on this computer. The panel shows the count without displaying saved values. Blank lines and lines starting with `#` are ignored. Supported formats include:
@@ -89,6 +95,8 @@ Four-part values with a numeric second segment use `host:port:username:password`
 
 ## Troubleshooting
 
+- **Windows reports application control error 4551.** Follow the `python -m proms` commands above for both starting the service and launching windows. They use the Python module entry point.
+- **The CLI says “Could not reach Proms.”** Start the service with `uv run --locked python -m proms` in the first terminal and leave it running. Retry the launch from a second terminal after the service starts.
 - **The local page is unavailable.** Check that the service is still running and that [its health endpoint](http://127.0.0.1:8000/health) returns `{"status":"ok"}`. If the panel says it has not been built, rerun your platform’s setup script.
 - **Chrome mode fails to start.** Check that Google Chrome is installed. The setup script installs Playwright Chromium for **Chromium (isolated sessions)**.
 - **Saved proxies mode reports a missing list.** Save a list in **Local proxy file** or select **Direct (no proxy)**.
