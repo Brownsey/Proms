@@ -11,4 +11,5 @@ test-results/
 
 # Private proxy credentials
 *proxies.txt
+.*proxies.txt.*.tmp
 .env*

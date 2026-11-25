@@ -1,4 +1,5 @@
 import subprocess
+import sys
 from collections.abc import Sequence
 
 
@@ -12,13 +13,39 @@ def test_server_binds_only_to_loopback_by_default(monkeypatch) -> None:
 
     monkeypatch.setattr(__main__.uvicorn, "run", fake_run)
 
-    __main__.main()
+    __main__.main([])
 
     assert called_with == {
         "app": "proms.app:app",
         "host": "127.0.0.1",
         "port": 8000,
     }
+
+
+def test_cli_can_launch_and_close_eight_direct_chrome_windows(monkeypatch, capsys) -> None:
+    from proms import __main__
+
+    requests = []
+
+    def fake_request(method: str, payload: dict[str, object] | None = None) -> dict[str, int]:
+        requests.append((method, payload))
+        return {"launched": 8, "active": 8, "closed": 8}
+
+    monkeypatch.setattr(__main__, "_request", fake_request)
+    __main__.main(["launch", "--direct", "8", "--chrome", "--url", "about:blank"])
+    __main__.main(["status"])
+    __main__.main(["close"])
+
+    assert requests == [
+        ("POST", {"direct_windows": 8, "chrome_profiles": True, "url": "about:blank"}),
+        ("GET", None),
+        ("DELETE", None),
+    ]
+    assert capsys.readouterr().out.splitlines() == [
+        "Launched 8 windows. 8 active.",
+        "8 active windows.",
+        "Closed 8 windows.",
+    ]
 
 
 def test_verify_runs_every_locked_quality_gate(monkeypatch) -> None:
@@ -35,10 +62,10 @@ def test_verify_runs_every_locked_quality_gate(monkeypatch) -> None:
     verify.main()
 
     assert commands == [
-        ["uv", "run", "--locked", "ruff", "check", "."],
-        ["uv", "run", "--locked", "ruff", "format", "--check", "."],
-        ["uv", "run", "--locked", "ty", "check"],
-        ["uv", "run", "--locked", "pytest"],
+        [sys.executable, "-m", "ruff", "check", "."],
+        [sys.executable, "-m", "ruff", "format", "--check", "."],
+        [sys.executable, "-m", "ty", "check"],
+        [sys.executable, "-m", "pytest"],
     ]
 
 
@@ -49,7 +76,7 @@ def test_verify_stops_when_a_gate_fails(monkeypatch) -> None:
 
     def fake_run(command: Sequence[str], *, check: bool) -> None:
         commands.append(list(command))
-        if command[3:5] == ["ruff", "format"]:
+        if command[2:4] == ["ruff", "format"]:
             raise subprocess.CalledProcessError(1, command)
 
     monkeypatch.setattr(verify.subprocess, "run", fake_run)

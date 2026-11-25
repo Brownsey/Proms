@@ -8,10 +8,57 @@ const API_LABEL = API_URL || "this local address";
 const STORAGE_KEY = "proms.launch-settings.v2";
 const LEGACY_STORAGE_KEY = "proms.launch-settings.v1";
 const DEFAULT_TARGET_URL = "https://whatismyipaddress.com/";
-type Settings = { windowsPerProxy: string; maxWindows: string; targetUrl: string };
+type Settings = {
+  windowsPerProxy: string;
+  maxWindows: string;
+  targetUrl: string;
+  chromeProfiles: boolean;
+  directConnection: boolean;
+  directWindows: string;
+};
 type Counts = { proxies: number | null; active: number | null };
 type Action = "connect" | "refresh" | "launch" | "close" | "save";
-const defaults: Settings = { windowsPerProxy: "1", maxWindows: "", targetUrl: DEFAULT_TARGET_URL };
+const defaults: Settings = {
+  windowsPerProxy: "1",
+  maxWindows: "",
+  targetUrl: DEFAULT_TARGET_URL,
+  chromeProfiles: false,
+  directConnection: false,
+  directWindows: "1",
+};
+
+class UnexpectedResponse extends Error {}
+
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function readSettings(): Settings {
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored !== null) {
+    const value = JSON.parse(stored) as (Partial<Settings> & { version?: unknown }) | null;
+    if (value?.version === 2 && typeof value.windowsPerProxy === "string" && typeof value.maxWindows === "string") {
+      return {
+        ...defaults,
+        windowsPerProxy: value.windowsPerProxy,
+        maxWindows: value.maxWindows,
+        chromeProfiles: value.chromeProfiles === true,
+        directConnection: value.directConnection === true,
+        directWindows: typeof value.directWindows === "string" ? value.directWindows : defaults.directWindows,
+      };
+    }
+    return defaults;
+  }
+
+  const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+  if (legacy !== null) {
+    const value = JSON.parse(legacy) as { staticWindows?: unknown } | null;
+    if (typeof value?.staticWindows === "string" && !integer(value.staticWindows, "Windows per proxy")) {
+      return { ...defaults, windowsPerProxy: value.staticWindows };
+    }
+  }
+  return defaults;
+}
 
 function errorDetail(value: unknown): string | null {
   if (typeof value === "string") return value;
@@ -34,26 +81,32 @@ async function requestJson(path: string, init?: RequestInit) {
     const detail = body && typeof body === "object" && "detail" in body ? errorDetail(body.detail) : null;
     throw new Error(detail ?? `Local service returned HTTP ${response.status}.`);
   }
-  return body;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new UnexpectedResponse("Local service returned an unexpected response.");
+  }
+  return body as Record<string, unknown>;
 }
 
-function integer(value: string, label: string, minimum: number) {
+function integer(value: string, label: string) {
   if (!/^\d+$/.test(value)) return `${label} must be a whole number.`;
-  return Number(value) < minimum ? `${label} must be ${minimum} or greater.` : null;
+  const count = Number(value);
+  if (!Number.isSafeInteger(count)) return `${label} is too large.`;
+  return count < 1 ? `${label} must be 1 or greater.` : null;
 }
 
 function validate(settings: Settings) {
-  const countError = integer(settings.windowsPerProxy, "Windows per proxy", 1);
+  const countError = settings.directConnection
+    ? integer(settings.directWindows, "Window count")
+    : integer(settings.windowsPerProxy, "Windows per proxy");
   if (countError) return countError;
-  if (settings.maxWindows) {
-    const maxError = integer(settings.maxWindows, "Maximum windows", 1);
+  if (!settings.directConnection && settings.maxWindows) {
+    const maxError = integer(settings.maxWindows, "Maximum windows");
     if (maxError) return maxError;
   }
   if (settings.targetUrl === "about:blank") return null;
-  try {
-    const url = new URL(settings.targetUrl);
-    if ((url.protocol === "http:" || url.protocol === "https:") && url.hostname) return null;
-  } catch {}
+  if (/^https?:\/\/[^/?#\\\s]/i.test(settings.targetUrl) && !/\s/.test(settings.targetUrl) && URL.canParse(settings.targetUrl)) {
+    return null;
+  }
   return "Target URL must be an absolute HTTP(S) URL or about:blank.";
 }
 
@@ -71,32 +124,32 @@ export default function Dashboard() {
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       try {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const value = JSON.parse(stored) as Partial<Settings> & { version?: unknown };
-          if (value.version === 2 && typeof value.windowsPerProxy === "string" && typeof value.maxWindows === "string") {
-            setSettings({ windowsPerProxy: value.windowsPerProxy, maxWindows: value.maxWindows, targetUrl: defaults.targetUrl });
-          }
-        } else {
-          const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
-          if (legacy) {
-            const value = JSON.parse(legacy) as { staticWindows?: unknown };
-            if (typeof value.staticWindows === "string" && /^\d+$/.test(value.staticWindows) && Number(value.staticWindows) >= 1) {
-              setSettings({ ...defaults, windowsPerProxy: value.staticWindows });
-            }
-          }
-        }
-      } catch { localStorage.removeItem(STORAGE_KEY); }
-      localStorage.removeItem(LEGACY_STORAGE_KEY);
-      setStorageReady(true);
+        setSettings(readSettings());
+      } catch {
+        // Preferences are optional when storage is unavailable or corrupted.
+      } finally {
+        setStorageReady(true);
+      }
     });
     return () => cancelAnimationFrame(frame);
   }, []);
 
   useEffect(() => {
     if (!storageReady) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, windowsPerProxy: settings.windowsPerProxy, maxWindows: settings.maxWindows }));
-  }, [settings.windowsPerProxy, settings.maxWindows, storageReady]);
+    try {
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        version: 2,
+        windowsPerProxy: settings.windowsPerProxy,
+        maxWindows: settings.maxWindows,
+        ...(settings.chromeProfiles ? { chromeProfiles: true } : {}),
+        ...(settings.directConnection ? { directConnection: true } : {}),
+        ...(settings.directWindows !== defaults.directWindows ? { directWindows: settings.directWindows } : {}),
+      }));
+    } catch {
+      // The current settings still work without local storage.
+    }
+  }, [settings.windowsPerProxy, settings.maxWindows, settings.chromeProfiles, settings.directConnection, settings.directWindows, storageReady]);
 
   useEffect(() => {
     if (!draft) return;
@@ -105,16 +158,32 @@ export default function Dashboard() {
     return () => window.removeEventListener("beforeunload", warn);
   }, [draft]);
 
-  function update(field: keyof Settings, value: string) {
+  function update<Field extends keyof Settings>(field: Field, value: Settings[Field]) {
     setSettings((current) => ({ ...current, [field]: value })); setError("");
   }
 
   const loadStatus = useCallback(async (mode: "connect" | "refresh") => {
     setAction(mode); setError(""); setNotice("");
     try {
-      const [configuration, browsers] = await Promise.all([requestJson("/configuration"), requestJson("/browsers")]) as [{ proxy_count?: unknown }, { active?: unknown }];
-      if (typeof configuration.proxy_count !== "number" || typeof browsers.active !== "number") throw new Error("Local service returned an unexpected status response.");
-      setCounts({ proxies: configuration.proxy_count, active: browsers.active }); setConnection("connected");
+      const [configuration, browsers] = await Promise.allSettled([
+        requestJson("/configuration"),
+        requestJson("/browsers"),
+      ]);
+      if (browsers.status === "rejected") throw browsers.reason;
+      const { active } = browsers.value;
+      if (!isCount(active)) throw new UnexpectedResponse("Local service returned an unexpected status response.");
+      setConnection("connected");
+
+      const proxies = configuration.status === "fulfilled" ? configuration.value.proxy_count : null;
+      if (!isCount(proxies)) {
+        setCounts({ proxies: null, active });
+        setError(configuration.status === "rejected" && configuration.reason instanceof Error
+          ? configuration.reason.message
+          : "Local service returned an unexpected proxy count.");
+        return;
+      }
+
+      setCounts({ proxies, active });
       setNotice(mode === "connect" ? "Local service connected." : "Status refreshed.");
     } catch (caught) {
       setConnection("disconnected"); setCounts({ proxies: null, active: null });
@@ -124,26 +193,61 @@ export default function Dashboard() {
 
   useEffect(() => { if (!didAutoConnect.current) { didAutoConnect.current = true; void loadStatus("connect"); } }, [loadStatus]);
 
+  async function refreshActiveCount() {
+    try {
+      const { active } = await requestJson("/browsers");
+      if (isCount(active)) setCounts((current) => ({ ...current, active }));
+    } catch {
+      // Keep the original operation error visible if status is unavailable.
+    }
+  }
+
   async function launch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const problem = validate(settings);
     if (problem) { setError(problem); setNotice(""); return; }
     setAction("launch"); setError(""); setNotice("");
     try {
-      const result = await requestJson("/browsers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ windows_per_proxy: Number(settings.windowsPerProxy), ...(settings.maxWindows ? { max_windows: Number(settings.maxWindows) } : {}), url: settings.targetUrl }) }) as { launched?: unknown; active?: unknown };
-      if (typeof result.launched !== "number" || typeof result.active !== "number") throw new Error("Local service returned an unexpected launch response.");
-      setCounts((current) => ({ ...current, active: result.active as number })); setNotice(`Launched ${result.launched} windows. ${result.active} active.`);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Launch failed."); } finally { setAction(null); }
+      const connectionSettings = settings.directConnection
+        ? { direct_windows: Number(settings.directWindows) }
+        : {
+            windows_per_proxy: Number(settings.windowsPerProxy),
+            ...(settings.maxWindows ? { max_windows: Number(settings.maxWindows) } : {}),
+          };
+      const { launched, active } = await requestJson("/browsers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...connectionSettings,
+          url: settings.targetUrl,
+          ...(settings.chromeProfiles ? { chrome_profiles: true } : {}),
+        }),
+      });
+      if (!isCount(launched) || !isCount(active)) throw new UnexpectedResponse("Local service returned an unexpected launch response.");
+      setCounts((current) => ({ ...current, active }));
+      setNotice(`Launched ${launched} windows. ${active} active.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Launch failed.");
+      await refreshActiveCount();
+    } finally {
+      setAction(null);
+    }
   }
 
   async function closeAll() {
     if (!window.confirm(`Close all ${counts.active ?? 0} active windows?`)) return;
     setAction("close"); setError(""); setNotice("");
     try {
-      const result = await requestJson("/browsers", { method: "DELETE" }) as { closed?: unknown };
-      if (typeof result.closed !== "number") throw new Error("Local service returned an unexpected close response.");
-      setCounts((current) => ({ ...current, active: 0 })); setNotice(`Closed ${result.closed} windows.`);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Close failed."); } finally { setAction(null); }
+      const { closed } = await requestJson("/browsers", { method: "DELETE" });
+      if (!isCount(closed)) throw new UnexpectedResponse("Local service returned an unexpected close response.");
+      setCounts((current) => ({ ...current, active: 0 }));
+      setNotice(`Closed ${closed} windows.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Close failed.");
+      await refreshActiveCount();
+    } finally {
+      setAction(null);
+    }
   }
 
   async function saveProxies() {
@@ -151,18 +255,23 @@ export default function Dashboard() {
     if (!hasProxy && !window.confirm("Clear every proxy from this computer?")) return;
     setAction("save"); setError(""); setNotice("");
     try {
-      const result = await requestJson("/configuration/proxies", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proxies: draft, ...(!hasProxy ? { confirm_clear: true } : {}) }) }) as { count?: unknown };
-      if (typeof result.count !== "number" || !Number.isInteger(result.count) || result.count < 0) throw new Error("unexpected save response");
-      setCounts((current) => ({ ...current, proxies: result.count as number })); setDraft("");
-      setNotice(result.count === 0 ? "Cleared proxies." : `Saved ${result.count} ${result.count === 1 ? "proxy" : "proxies"}.`);
+      const { count } = await requestJson("/configuration/proxies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proxies: draft, ...(!hasProxy ? { confirm_clear: true } : {}) }),
+      });
+      if (!isCount(count)) throw new UnexpectedResponse();
+      setCounts((current) => ({ ...current, proxies: count }));
+      setDraft("");
+      setNotice(count === 0 ? "Cleared proxies." : `Saved ${count} ${count === 1 ? "proxy" : "proxies"}.`);
     } catch (caught) {
       if (caught instanceof TypeError) { setConnection("disconnected"); setCounts({ proxies: null, active: null }); setError(`Proxy list was not saved. Start the local service at ${API_LABEL}, reconnect, then try again. Draft kept.`); }
-      else if (caught instanceof Error && caught.message === "unexpected save response") setError("Proxy list was not saved: unexpected save response. Draft kept.");
+      else if (caught instanceof UnexpectedResponse) setError("Proxy list was not saved: unexpected save response. Draft kept.");
       else setError("Proxy list was not saved. Check each line uses a supported proxy format, then try again. Draft kept.");
     } finally { setAction(null); }
   }
 
-  const busy = action !== null;
+  const busy = action !== null || !storageReady;
   const connected = connection === "connected";
   return (
     <main className="shell" aria-busy={busy}>
@@ -218,8 +327,7 @@ export default function Dashboard() {
             <h1 id="manifest-heading">Launch manifest</h1>
           </div>
           <p className="header-copy">
-            Set capacity for each proxy line, choose one destination, then dispatch headed Chromium
-            windows from your machine.
+            Choose a browser, network connection, window count, and destination.
           </p>
         </header>
         <div className="message-stack" aria-live="polite" aria-atomic="true">
@@ -229,19 +337,46 @@ export default function Dashboard() {
 
         <form className="launch-form" onSubmit={launch} noValidate>
           <fieldset disabled={busy}>
-            <legend>Window capacity</legend>
+            <legend>Browser</legend>
             <div className="count-fields">
               <label>
-                <span>Windows per proxy</span>
-                <input type="number" inputMode="numeric" min="1" step="1" value={settings.windowsPerProxy} onChange={(event) => update("windowsPerProxy", event.target.value)} />
-                <small>{counts.proxies ?? "—"} lines available</small>
+                <span>Launch mode</span>
+                <select value={settings.chromeProfiles ? "chrome" : "chromium"} onChange={(event) => update("chromeProfiles", event.target.value === "chrome")} aria-describedby="launch-mode-help">
+                  <option value="chromium">Chromium (isolated sessions)</option>
+                  <option value="chrome">Google Chrome (temporary profiles)</option>
+                </select>
+                <small id="launch-mode-help">Chrome mode requires Google Chrome installed.</small>
               </label>
               <label>
-                <span>Maximum windows</span>
-                <input type="number" inputMode="numeric" min="1" step="1" placeholder="All" value={settings.maxWindows} onChange={(event) => update("maxWindows", event.target.value)} />
-                <small>Blank launches all requested windows</small>
+                <span>Network connection</span>
+                <select value={settings.directConnection ? "direct" : "proxy"} onChange={(event) => update("directConnection", event.target.value === "direct")}>
+                  <option value="proxy">Saved proxies</option>
+                  <option value="direct">Direct (no proxy)</option>
+                </select>
               </label>
             </div>
+          </fieldset>
+          <fieldset disabled={busy}>
+            <legend>Window capacity</legend>
+            {settings.directConnection ? (
+              <label className="wide-field">
+                <span>Window count</span>
+                <input type="number" inputMode="numeric" min="1" step="1" value={settings.directWindows} onChange={(event) => update("directWindows", event.target.value)} />
+              </label>
+            ) : (
+              <div className="count-fields">
+                <label>
+                  <span>Windows per proxy</span>
+                  <input type="number" inputMode="numeric" min="1" step="1" value={settings.windowsPerProxy} onChange={(event) => update("windowsPerProxy", event.target.value)} />
+                  <small>{counts.proxies ?? "-"} lines available</small>
+                </label>
+                <label>
+                  <span>Maximum windows</span>
+                  <input type="number" inputMode="numeric" min="1" step="1" placeholder="All" value={settings.maxWindows} onChange={(event) => update("maxWindows", event.target.value)} />
+                  <small>Blank launches all requested windows</small>
+                </label>
+              </div>
+            )}
           </fieldset>
           <fieldset disabled={busy}>
             <legend>Destination</legend>
@@ -261,19 +396,16 @@ export default function Dashboard() {
               </p>
               <fieldset className="proxy-file-controls" disabled={busy}>
                 <legend className="visually-hidden">Proxy file draft</legend>
-                <div className="proxy-editor-grid">
-                  <div className="proxy-editor">
-                    <label htmlFor="proxies">Proxies</label>
-                    <textarea id="proxies" rows={6} autoComplete="off" autoCapitalize="none" spellCheck={false} aria-describedby="proxies-help" value={draft} onChange={(event) => { setDraft(event.target.value); setError(""); }} />
-                    <small id="proxies-help">
-                      One proxy per line, including username:password@host:port. Blank lines and #
-                      comments are ignored. Use an http:// prefix when the password contains a
-                      colon.
-                    </small>
-                    <button className="save-list-button" type="button" onClick={saveProxies} disabled={!connected || busy}>
-                      {action === "save" ? "Saving…" : "Save proxy list"}
-                    </button>
-                  </div>
+                <div className="proxy-editor">
+                  <label htmlFor="proxies">Proxies</label>
+                  <textarea id="proxies" rows={6} autoComplete="off" autoCapitalize="none" spellCheck={false} aria-describedby="proxies-help" value={draft} onChange={(event) => { setDraft(event.target.value); setError(""); }} />
+                  <small id="proxies-help">
+                    One proxy per line. Blank lines and # comments are ignored. Use an http://
+                    prefix when the password contains a colon.
+                  </small>
+                  <button className="save-list-button" type="button" onClick={saveProxies} disabled={!connected || busy}>
+                    {action === "save" ? "Saving…" : "Save proxy list"}
+                  </button>
                 </div>
               </fieldset>
             </div>
@@ -288,7 +420,7 @@ export default function Dashboard() {
           </div>
         </form>
         <footer>
-          <p>Every window gets a fresh temporary Chromium profile. Cookies and site storage are not shared with other windows or later launch jobs.</p>
+          <p>Each window starts with its own cookies and site storage. Later launches start fresh.</p>
           <p>Launch settings stay in this browser. Proxy values and service secrets are never persisted here.</p>
           <p>Control requests stay between this page and the local service.</p>
         </footer>

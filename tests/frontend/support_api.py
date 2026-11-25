@@ -26,8 +26,8 @@ class FakeBrowser:
         self.connected = False
 
 
-async def launch_browser(proxy: Mapping[str, str]) -> FakeBrowser:
-    assert proxy["server"] in {
+async def launch_browser(proxy: Mapping[str, str] | None) -> FakeBrowser:
+    assert proxy is None or proxy["server"] in {
         "http://initial.test:9000",
         "http://first.test:9001",
         "http://second.test:9002",

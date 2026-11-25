@@ -88,13 +88,13 @@ export default function Installer() {
             <p className="eyebrow">Codex route</p>
             <h2 id="codex-heading">Copy one complete instruction</h2>
           </div>
-          <p>Copy this read-only prompt into Codex. It includes the safe setup and verification boundaries.</p>
+          <p>Paste the setup prompt into Codex to install Proms, start the local service, and verify it.</p>
           <CopyPrompt />
         </section>
       </div>
 
       <footer className="installer-footer">
-        <p>Proms runs Chromium and manages its local proxy file from your Windows or macOS computer.</p>
+        <p>Proms opens browser windows and manages its proxy file from your Windows or macOS computer.</p>
         <p>The hosted guide never connects to your local service.</p>
       </footer>
     </main>

@@ -1,15 +1,16 @@
 import subprocess
+import sys
 
 
 def main() -> None:
     commands = [
-        ["uv", "run", "--locked", "ruff", "check", "."],
-        ["uv", "run", "--locked", "ruff", "format", "--check", "."],
-        ["uv", "run", "--locked", "ty", "check"],
-        ["uv", "run", "--locked", "pytest"],
+        ["ruff", "check", "."],
+        ["ruff", "format", "--check", "."],
+        ["ty", "check"],
+        ["pytest"],
     ]
     for command in commands:
-        subprocess.run(command, check=True)
+        subprocess.run([sys.executable, "-m", *command], check=True)
 
 
 if __name__ == "__main__":

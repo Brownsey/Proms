@@ -1,5 +1,5 @@
-proxies.txt
-rotating_proxies.txt
+*proxies.txt
+.*proxies.txt.*.tmp
 .env*
 .venv/
 **/__pycache__/

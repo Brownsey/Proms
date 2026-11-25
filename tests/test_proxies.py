@@ -99,6 +99,14 @@ def test_load_proxies_reports_a_missing_file(tmp_path: Path) -> None:
         load_proxies(tmp_path / "proxies.txt")
 
 
+def test_load_proxies_reports_invalid_encoding(tmp_path: Path) -> None:
+    proxy_file = tmp_path / "proxies.txt"
+    proxy_file.write_bytes(b"\xff")
+
+    with pytest.raises(ProxyFileError, match="valid UTF-8"):
+        load_proxies(proxy_file)
+
+
 def test_schemeless_credential_errors_do_not_echo_credentials(tmp_path: Path) -> None:
     proxy_file = tmp_path / "proxies.txt"
     proxy_file.write_text("synthetic-user:synthetic-secret@bad host:8080", encoding="utf-8")

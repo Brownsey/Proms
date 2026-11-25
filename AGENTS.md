@@ -17,7 +17,7 @@ When asked to install, configure, or run Proms:
 3. `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1 -CheckOnly` is an optional, read-only prerequisite diagnostic. It does not prove repository dependencies or Chromium are installed.
 4. Always run the full idempotent setup command: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1`. This installs missing `uv` and Node.js LTS through `winget`, restores locked Python/npm dependencies, installs both required Playwright Chromium revisions, builds the local control panel, and creates an empty ignored `proxies.txt` when absent. An OS approval prompt may still require the user.
 5. Start the loopback service with `uv run --locked proms` and confirm `GET http://127.0.0.1:8000/health`.
-6. Read only the numeric count from `GET /configuration`. If it is zero, direct the user to the local control panel's **Local proxy file** section; never inspect the file or ask them to paste credentials into chat.
+6. Read only the numeric count from `GET /configuration`. If it is zero and the user wants saved proxies, direct them to **Local proxy file**. Direct launches can run with zero saved proxies from the control panel or with `uv run --locked proms launch --direct COUNT --chrome`.
 7. Direct the user to `http://127.0.0.1:8000/control/`. All controls and proxy drafts stay local; existing proxy values are never displayed.
 8. Run `npm run verify` after repository changes.
 

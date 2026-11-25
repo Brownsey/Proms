@@ -34,9 +34,7 @@ test("connects and exposes one confidential proxy list", async ({ page }) => {
   await expect(page.getByText("Proxies", { exact: true }).locator("..").locator("dd")).toHaveText("6");
   await expect(page.getByText(/controls and proxy drafts stay on this PC/i)).toBeVisible();
   await expect(
-    page.getByText(
-      /fresh temporary Chromium profile\. Cookies and site storage are not shared with other windows or later launch jobs\./i,
-    ),
+    page.getByText(/each window starts with its own cookies and site storage/i),
   ).toBeVisible();
   await page.getByText("Local proxy file", { exact: true }).click();
   await expect(page.getByText(/fixed proxies and sticky-session proxy credentials are accepted/i)).toBeVisible();
@@ -58,6 +56,21 @@ test("offers retry after connection failure", async ({ page }) => {
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
 });
 
+test("lets the user replace an invalid proxy list", async ({ page }) => {
+  await page.route(`${API}/configuration`, (route) => route.fulfill({
+    status: 400,
+    json: { detail: "Invalid proxy on line 1." },
+  }));
+  await page.route(`${API}/browsers`, (route) => route.fulfill({ json: { active: 0 } }));
+  await page.route(`${API}/configuration/proxies`, (route) => route.fulfill({ json: { count: 1 } }));
+  await page.goto("/control/");
+  await expect(page.getByRole("alert")).toContainText("Invalid proxy on line 1.");
+  await page.getByText("Local proxy file", { exact: true }).click();
+  await page.getByLabel("Proxies", { exact: true }).fill("one.test:8001");
+  await page.getByRole("button", { name: "Save proxy list" }).click();
+  await expect(page.getByText("Saved 1 proxy.")).toBeVisible();
+});
+
 test("launches with an optional total cap", async ({ page }) => {
   await connect(page, 2);
   let body: unknown;
@@ -72,6 +85,81 @@ test("launches with an optional total cap", async ({ page }) => {
   await page.getByRole("button", { name: "Launch windows" }).click();
   await expect(page.getByText("Launched 50 windows. 52 active.")).toBeVisible();
   expect(body).toEqual({ windows_per_proxy: 2, max_windows: 50, url: "https://example.com/path" });
+});
+
+test("launches with temporary Chrome profiles and remembers the mode", async ({ page }) => {
+  await connect(page);
+  await page.route(`${API}/browsers`, (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    expect(route.request().postDataJSON()).toMatchObject({ chrome_profiles: true });
+    return route.fulfill({ json: { launched: 6, active: 9 } });
+  });
+  const mode = page.getByLabel("Launch mode");
+  await mode.selectOption({ label: "Google Chrome (temporary profiles)" });
+  await page.getByRole("button", { name: "Launch windows" }).click();
+  await expect(page.getByText("Launched 6 windows. 9 active.")).toBeVisible();
+  await page.reload();
+  await expect(mode).toHaveValue("chrome");
+});
+
+test("launches eight Chrome windows directly with no saved proxies", async ({ page }) => {
+  await page.route(`${API}/configuration`, (route) => route.fulfill({ json: { proxy_count: 0 } }));
+  let body: unknown;
+  await page.route(`${API}/browsers`, (route) => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { active: 0 } });
+    body = route.request().postDataJSON();
+    return route.fulfill({ json: { launched: 8, active: 8 } });
+  });
+  await page.goto("/control/");
+  await page.getByLabel("Launch mode").selectOption("chrome");
+  const network = page.getByLabel("Network connection");
+  await network.selectOption("direct");
+  await page.getByLabel("Window count").fill("8");
+  await expect(page.getByLabel("Windows per proxy")).toHaveCount(0);
+  await page.getByLabel("Target URL").fill("about:blank");
+  await page.getByRole("button", { name: "Launch windows" }).click();
+  await expect(page.getByText("Launched 8 windows. 8 active.")).toBeVisible();
+  expect(body).toEqual({ direct_windows: 8, chrome_profiles: true, url: "about:blank" });
+  await page.reload();
+  await expect(network).toHaveValue("direct");
+  await expect(page.getByLabel("Window count")).toHaveValue("8");
+});
+
+test("allows launches when browser storage is unavailable", async ({ page }) => {
+  const errors: Error[] = [];
+  page.on("pageerror", (error) => errors.push(error));
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "localStorage", {
+      get() { throw new DOMException("Storage disabled", "SecurityError"); },
+    });
+  });
+  await connect(page);
+  await page.route(`${API}/browsers`, (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    return route.fulfill({ json: { launched: 6, active: 9 } });
+  });
+  await page.getByLabel("Launch mode").selectOption("chrome");
+  await page.getByRole("button", { name: "Launch windows" }).click();
+  await expect(page.getByText("Launched 6 windows. 9 active.")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("offers cleanup when a failed launch leaves a window open", async ({ page }) => {
+  await connect(page, 0);
+  let active = 0;
+  await page.route(`${API}/browsers`, (route) => {
+    if (route.request().method() === "GET") return route.fulfill({ json: { active } });
+    active = 1;
+    return route.fulfill({
+      status: 400,
+      json: { detail: "Unable to load the target URL. 1 browser(s) remain active after cleanup." },
+    });
+  });
+  const close = page.getByRole("button", { name: "Close all" });
+  await expect(close).toBeDisabled();
+  await page.getByRole("button", { name: "Launch windows" }).click();
+  await expect(page.getByRole("alert")).toContainText("remain active");
+  await expect(close).toBeEnabled();
 });
 
 test("omits the total cap when blank and validates both counts", async ({ page }) => {

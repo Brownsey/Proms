@@ -29,6 +29,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -333,8 +334,7 @@ h1 {
 }
 
 .count-fields,
-.wide-field,
-.attempt-field {
+.wide-field {
   float: right;
   width: 69%;
 }
@@ -357,6 +357,7 @@ label > span {
 }
 
 input,
+select,
 textarea {
   width: 100%;
   min-width: 0;
@@ -368,7 +369,8 @@ textarea {
   font-family: var(--mono);
 }
 
-input {
+input,
+select {
   height: 50px;
 }
 
@@ -380,11 +382,13 @@ textarea {
 }
 
 input:hover,
+select:hover,
 textarea:hover {
   border-color: #8191aa;
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: var(--signal);
 }
@@ -393,25 +397,6 @@ small {
   color: #536178;
   font-size: 0.66rem;
   line-height: 1.4;
-}
-
-.attempt-field {
-  grid-template-columns: minmax(170px, 0.42fr) 1fr;
-  align-items: end;
-}
-
-.attempt-field span {
-  grid-column: 1;
-}
-
-.attempt-field input {
-  grid-column: 1;
-}
-
-.attempt-field small {
-  grid-column: 2;
-  grid-row: 2;
-  padding-bottom: 10px;
 }
 
 .proxy-files {
@@ -490,12 +475,6 @@ small {
   clip: rect(0, 0, 0, 0) !important;
   white-space: nowrap !important;
   border: 0 !important;
-}
-
-.proxy-editor-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px;
 }
 
 .proxy-editor {
@@ -925,8 +904,7 @@ footer p {
 
   .launch-form legend,
   .count-fields,
-  .wide-field,
-  .attempt-field {
+  .wide-field {
     float: none;
     width: 100%;
   }
@@ -943,9 +921,6 @@ footer p {
     width: 100%;
   }
 
-  .proxy-editor-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 440px) {
@@ -986,17 +961,6 @@ footer p {
 
   .orbit-core strong {
     font-size: 2.8rem;
-  }
-
-  .attempt-field {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .attempt-field small {
-    grid-column: 1;
-    grid-row: auto;
-    padding: 0;
   }
 
   .action-row,

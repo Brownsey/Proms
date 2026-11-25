@@ -101,8 +101,12 @@ npx playwright install chromium
 uv run --locked playwright install chromium
 npm run build
 
-if [[ ! -e "$repo_root/proxies.txt" ]]; then
-  : > "$repo_root/proxies.txt"
+proxy_file="$repo_root/proxies.txt"
+if [[ ! -e "$proxy_file" ]]; then
+  if ! (set -o noclobber; : > "$proxy_file") 2>/dev/null && [[ ! -e "$proxy_file" ]]; then
+    echo "Could not create the local proxy file." >&2
+    exit 1
+  fi
 fi
 
 echo "READY: dependencies, Chromium, and the local control panel are installed"

@@ -4,9 +4,16 @@ import pytest
 from fastapi.testclient import TestClient
 from test_api import FakeLauncher, write_proxies
 
-from proms.app import create_app
+from proms.app import app, create_app
 
 PRODUCTION_ORIGIN = "https://proms.brownsey.co.uk"
+
+
+def test_production_app_accepts_only_loopback_hosts() -> None:
+    with TestClient(app, base_url="http://127.0.0.1:8000") as client:
+        assert client.get("/health").status_code == 200
+        assert client.get("/health", headers={"Host": "localhost:8000"}).status_code == 200
+        assert client.get("/health", headers={"Host": "untrusted.test:8000"}).status_code == 400
 
 
 def test_health_and_missing_or_empty_configuration_are_safe(tmp_path: Path) -> None:

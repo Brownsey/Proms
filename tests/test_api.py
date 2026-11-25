@@ -83,7 +83,7 @@ class FakeBrowser:
 
 class FakeLauncher:
     def __init__(self) -> None:
-        self.proxies: list[dict[str, str]] = []
+        self.proxies: list[dict[str, str] | None] = []
         self.browsers: list[FakeBrowser] = []
         self.fail_on_call: int | None = None
         self.fail_page_on_call: int | None = None
@@ -95,9 +95,9 @@ class FakeLauncher:
         self.launch_waits: dict[int, tuple[asyncio.Event, asyncio.Event]] = {}
         self.new_page_waits: dict[int, tuple[asyncio.Event, asyncio.Event]] = {}
 
-    async def __call__(self, proxy: Mapping[str, str]) -> FakeBrowser:
+    async def __call__(self, proxy: Mapping[str, str] | None) -> FakeBrowser:
         call_number = len(self.proxies) + 1
-        self.proxies.append(dict(proxy))
+        self.proxies.append(dict(proxy) if proxy is not None else None)
         if wait := self.launch_waits.get(call_number):
             entered, release = wait
             entered.set()
@@ -164,7 +164,7 @@ def test_max_windows_caps_launch_and_prioritises_unique_proxies(tmp_path: Path) 
 async def test_each_window_gets_a_fresh_nonpersistent_browser_across_launch_jobs(
     monkeypatch,
 ) -> None:
-    import proms.app as app_module
+    from proms import browsers
 
     class FakeChromium:
         def __init__(self) -> None:
@@ -191,7 +191,7 @@ async def test_each_window_gets_a_fresh_nonpersistent_browser_across_launch_jobs
         async def start(self) -> FakePlaywright:
             return runtime
 
-    monkeypatch.setattr(app_module, "async_playwright", lambda: FakeStarter())
+    monkeypatch.setattr(browsers, "async_playwright", lambda: FakeStarter())
     manager = BrowserManager()
 
     await manager.launch(
@@ -203,6 +203,98 @@ async def test_each_window_gets_a_fresh_nonpersistent_browser_across_launch_jobs
     assert len(runtime.chromium.browsers) == 3
     assert len({id(browser) for browser in runtime.chromium.browsers}) == 3
     await manager.shutdown()
+
+
+@pytest.mark.parametrize("direct", [False, True])
+def test_chrome_mode_opens_one_temporary_profile_per_window(
+    tmp_path: Path, monkeypatch, direct: bool
+) -> None:
+    from proms import browsers
+
+    class FakeContext:
+        def __init__(self) -> None:
+            self.browser = FakeBrowser()
+            self.pages = [FakePage(self.browser)]
+
+        def on(self, event, callback) -> None:
+            assert event == "close"
+            self.on_close = callback
+
+        async def close(self) -> None:
+            await self.browser.close()
+            self.on_close(self)
+
+    class FakeChromium:
+        def __init__(self) -> None:
+            self.contexts: list[FakeContext] = []
+
+        async def launch_persistent_context(self, user_data_dir: str, **options) -> FakeContext:
+            assert user_data_dir == ""
+            assert options == {
+                "channel": "chrome",
+                "headless": False,
+                "proxy": None if direct else {"server": "http://one.test:8001"},
+                "args": ["--no-proxy-server"] if direct else None,
+            }
+            context = FakeContext()
+            self.contexts.append(context)
+            return context
+
+    class FakePlaywright:
+        def __init__(self) -> None:
+            self.chromium = FakeChromium()
+
+        async def stop(self) -> None:
+            pass
+
+    runtime = FakePlaywright()
+
+    class FakeStarter:
+        async def start(self) -> FakePlaywright:
+            return runtime
+
+    monkeypatch.setattr(browsers, "async_playwright", lambda: FakeStarter())
+    proxy_file = tmp_path / "proxies.txt"
+    if not direct:
+        write_proxies(proxy_file, "one.test:8001")
+    count = 8 if direct else 2
+    connection = {"direct_windows": count} if direct else {"windows_per_proxy": count}
+
+    with TestClient(create_app(proxy_file=proxy_file)) as client:
+        response = client.post(
+            "/browsers",
+            json={**connection, "chrome_profiles": True, "url": "https://example.test/"},
+        )
+        assert response.json() == {"launched": count, "active": count}
+        contexts = runtime.chromium.contexts
+        assert len({id(context) for context in contexts}) == count
+        assert all(context.browser.page_urls == ["https://example.test/"] for context in contexts)
+
+        contexts[0].on_close(contexts[0])
+        assert client.get("/browsers").json() == {"active": count - 1}
+        assert client.delete("/browsers").json() == {"closed": count - 1}
+        assert all(context.browser.closed for context in contexts[1:])
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"direct_windows": 0},
+        {"direct_windows": True},
+        {"direct_windows": 8, "windows_per_proxy": 1},
+        {"direct_windows": 8, "max_windows": 2},
+    ],
+)
+def test_rejects_invalid_or_ambiguous_direct_launch(tmp_path: Path, payload: dict) -> None:
+    launcher = FakeLauncher()
+    with TestClient(
+        create_app(proxy_file=tmp_path / "proxies.txt", launch_browser=launcher)
+    ) as client:
+        response = client.post("/browsers", json=payload)
+
+    assert response.status_code == 400
+    assert isinstance(response.json()["detail"], list)
+    assert not launcher.browsers
 
 
 @pytest.mark.parametrize("max_windows", [0, -1, True, "50"])
@@ -401,7 +493,7 @@ def test_failed_launch_rolls_back_only_new_browsers(tmp_path: Path) -> None:
         response = client.post("/browsers", json={"windows_per_proxy": 2})
 
         assert response.status_code == 400
-        assert "Chromium refused to start" in response.json()["detail"]
+        assert response.json() == {"detail": "Unable to start a browser."}
         assert not existing.closed
         assert launcher.browsers[1].closed
         assert client.get("/browsers").json() == {"active": 1}
@@ -420,7 +512,7 @@ def test_failed_page_creation_closes_the_browser_and_rolls_back_request(tmp_path
         response = client.post("/browsers", json={"windows_per_proxy": 2})
 
         assert response.status_code == 400
-        assert "Chromium refused to open a page" in response.json()["detail"]
+        assert response.json() == {"detail": "Unable to open a browser page."}
         assert not existing.closed
         assert launcher.browsers[1].closed
         assert launcher.browsers[2].closed
@@ -496,7 +588,7 @@ def test_delete_retries_connected_close_failures_and_ignores_disconnected_errors
 async def test_shutdown_stops_playwright_and_retains_connected_close_failures(
     monkeypatch,
 ) -> None:
-    import proms.app as app_module
+    from proms import browsers
 
     browser = FakeBrowser(close_error="connected")
 
@@ -518,7 +610,7 @@ async def test_shutdown_stops_playwright_and_retains_connected_close_failures(
         async def start(self) -> FakePlaywright:
             return runtime
 
-    monkeypatch.setattr(app_module, "async_playwright", lambda: FakeStarter())
+    monkeypatch.setattr(browsers, "async_playwright", lambda: FakeStarter())
     manager = BrowserManager()
     await manager.launch([{"server": "http://one.test:8001"}], 1)
 
@@ -535,7 +627,7 @@ async def test_concurrent_first_launches_start_and_stop_one_playwright_runtime(
 ) -> None:
     import asyncio
 
-    import proms.app as app_module
+    from proms import browsers
 
     start_entered = asyncio.Event()
     release_start = asyncio.Event()
@@ -565,7 +657,7 @@ async def test_concurrent_first_launches_start_and_stop_one_playwright_runtime(
             return runtime
 
     starter = FakeStarter()
-    monkeypatch.setattr(app_module, "async_playwright", lambda: starter)
+    monkeypatch.setattr(browsers, "async_playwright", lambda: starter)
     manager = BrowserManager()
     first = asyncio.create_task(manager.launch([{"server": "http://one.test:8001"}], 1))
     second = asyncio.create_task(manager.launch([{"server": "http://two.test:8002"}], 1))
@@ -642,3 +734,12 @@ def test_launch_rejects_legacy_mode_specific_fields(
 
     assert response.status_code == 400
     assert launcher.proxies == []
+
+
+def test_invalid_launch_request_does_not_echo_input(tmp_path: Path) -> None:
+    with TestClient(create_app(proxy_file=tmp_path / "proxies.txt")) as client:
+        response = client.post("/browsers", json={"url": "invalid-url-marker", "extra-marker": 1})
+
+    assert response.status_code == 400
+    assert response.json()["detail"][0]["loc"] == ["body", "url"]
+    assert "marker" not in response.text

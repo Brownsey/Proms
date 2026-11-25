@@ -1,5 +1,6 @@
 import os
 import tempfile
+from contextlib import suppress
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -111,21 +112,24 @@ def replace_proxy_file(path: Path, contents: str) -> None:
         os.replace(temporary_path, path)
     except BaseException:
         if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
+            with suppress(OSError):
+                temporary_path.unlink(missing_ok=True)
         raise
 
 
 def _load_proxies(path: Path, *, optional: bool) -> list[ProxySettings]:
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        contents = path.read_text(encoding="utf-8")
     except FileNotFoundError as error:
         if optional:
             return []
         raise ProxyFileError(f"Proxy file not found: {path}") from error
+    except UnicodeError as error:
+        raise ProxyFileError("Proxy file must be valid UTF-8") from error
     except OSError as error:
-        raise ProxyFileError(f"Unable to read proxy file {path}: {error}") from error
+        raise ProxyFileError("Unable to read proxy file") from error
 
-    proxies = parse_proxy_text("\n".join(lines))
+    proxies = parse_proxy_text(contents)
     if not proxies and not optional:
         raise ProxyFileError(f"Proxy file contains no proxies: {path}")
     return proxies

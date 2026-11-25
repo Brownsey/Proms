@@ -1,29 +1,22 @@
 import asyncio
 import json
 import os
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Iterable, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from ipaddress import ip_address
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Self
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from playwright.async_api import (
-    Playwright,
-    async_playwright,
-)
-from playwright.async_api import (
-    ProxySettings as PlaywrightProxySettings,
-)
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from proms.browsers import BrowserCloseError, BrowserLaunchError, BrowserManager, LaunchBrowser
 from proms.proxies import (
     ProxyFileError,
     ProxySettings,
@@ -72,189 +65,14 @@ def _is_http_loopback_origin(origin: str) -> bool:
         return False
 
 
-class Page(Protocol):
-    async def goto(self, url: str) -> object: ...
-
-
-class Browser(Protocol):
-    def is_connected(self) -> bool: ...
-
-    async def new_page(self) -> Page: ...
-
-    async def close(self) -> None: ...
-
-
-LaunchBrowser = Callable[[Mapping[str, str]], Awaitable[Browser]]
-
-
-class BrowserLaunchError(RuntimeError):
-    """Raised when a requested group of browsers cannot be launched."""
-
-
-class BrowserCloseError(RuntimeError):
-    """Raised when one or more browsers remain connected after cleanup."""
-
-
-@dataclass
-class BrowserRecord:
-    browser: Browser
-
-
-class BrowserManager:
-    def __init__(self, launch_browser: LaunchBrowser | None = None) -> None:
-        self._launch_override = launch_browser
-        self._playwright: Playwright | None = None
-        self._playwright_lock = asyncio.Lock()
-        self._operation_lock = asyncio.Lock()
-        self._browsers: list[BrowserRecord] = []
-
-    async def _launch(self, proxy: Mapping[str, str]) -> Browser:
-        if self._launch_override is not None:
-            return await self._launch_override(proxy)
-        if self._playwright is None:
-            async with self._playwright_lock:
-                if self._playwright is None:
-                    self._playwright = await async_playwright().start()
-        settings = cast(PlaywrightProxySettings, dict(proxy))
-        return await self._playwright.chromium.launch(headless=False, proxy=settings)
-
-    async def launch(
-        self,
-        proxies: list[ProxySettings],
-        windows_per_proxy: int,
-        *,
-        url: str = "about:blank",
-        max_windows: int | None = None,
-    ) -> int:
-        async with self._operation_lock:
-            return await self._launch_transaction(
-                proxies,
-                windows_per_proxy,
-                url=url,
-                max_windows=max_windows,
-            )
-
-    async def _launch_transaction(
-        self,
-        proxies: list[ProxySettings],
-        windows_per_proxy: int,
-        *,
-        url: str,
-        max_windows: int | None,
-    ) -> int:
-        owned: list[BrowserRecord] = []
-        retained = 0
-        try:
-            for _ in range(windows_per_proxy):
-                for proxy in proxies:
-                    if max_windows is not None and len(owned) >= max_windows:
-                        break
-                    browser = await self._launch(proxy)
-                    record = BrowserRecord(browser)
-                    owned.append(record)
-                    page = await browser.new_page()
-                    if url != "about:blank":
-                        await page.goto(url)
-                if max_windows is not None and len(owned) >= max_windows:
-                    break
-
-            launched = len(owned)
-            self._browsers.extend(owned)
-            owned.clear()
-            return launched
-        except BaseException as error:
-            _, rollback_retained = await self._cleanup_owned(list(owned), owned)
-            retained += rollback_retained
-            if not isinstance(error, Exception):
-                raise
-            cleanup = f"; cleanup failed: {retained} browser(s) remain active" if retained else ""
-            raise BrowserLaunchError(f"Unable to launch browsers: {error}{cleanup}") from error
-
-    async def _cleanup_owned(
-        self, records: list[BrowserRecord], owned: list[BrowserRecord]
-    ) -> tuple[int, int]:
-        cleanup = asyncio.create_task(self._settle_records(records, owned))
-        cancellation: asyncio.CancelledError | None = None
-        while not cleanup.done():
-            try:
-                await asyncio.shield(cleanup)
-            except asyncio.CancelledError as error:
-                cancellation = error
-        result = cleanup.result()
-        if cancellation is not None:
-            raise cancellation
-        return result
-
-    async def _settle_records(
-        self, records: list[BrowserRecord], owned: list[BrowserRecord]
-    ) -> tuple[int, int]:
-        closed = 0
-        retained = 0
-        cancellation: asyncio.CancelledError | None = None
-        for record in records:
-            try:
-                was_connected = record.browser.is_connected()
-            except asyncio.CancelledError as error:
-                cancellation = error
-                was_connected = True
-            except BaseException:
-                was_connected = True
-            try:
-                await record.browser.close()
-            except asyncio.CancelledError as error:
-                cancellation = error
-            except BaseException:
-                pass
-            try:
-                connected = record.browser.is_connected()
-            except asyncio.CancelledError as error:
-                cancellation = error
-                connected = True
-            except BaseException:
-                connected = True
-            if connected:
-                self._browsers.append(record)
-                retained += 1
-            elif was_connected:
-                closed += 1
-            owned.remove(record)
-        if cancellation is not None:
-            raise cancellation
-        return closed, retained
-
-    def active(self) -> int:
-        self._browsers = [record for record in self._browsers if record.browser.is_connected()]
-        return len(self._browsers)
-
-    async def close_all(self) -> int:
-        async with self._operation_lock:
-            return await self._close_all()
-
-    async def _close_all(self) -> int:
-        owned, self._browsers = self._browsers, []
-        closed, retained = await self._cleanup_owned(list(owned), owned)
-        if retained:
-            raise BrowserCloseError(
-                f"Unable to close {retained} browser(s); {retained} remain active"
-            )
-        return closed
-
-    async def shutdown(self) -> None:
-        async with self._operation_lock:
-            try:
-                await self._close_all()
-            finally:
-                if self._playwright is not None:
-                    await self._playwright.stop()
-                    self._playwright = None
-
-
 class LaunchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     windows_per_proxy: int = Field(default=1, ge=1, strict=True)
     max_windows: int | None = Field(default=None, ge=1, strict=True)
+    direct_windows: int | None = Field(default=None, ge=1, strict=True)
     url: str = Field(default=DEFAULT_TARGET_URL, strict=True)
+    chrome_profiles: bool = Field(default=False, strict=True)
 
     @field_validator("url")
     @classmethod
@@ -274,6 +92,17 @@ class LaunchRequest(BaseModel):
         ):
             raise ValueError("url must be an absolute HTTP(S) URL or about:blank")
         return value
+
+    @model_validator(mode="after")
+    def validate_connection_mode(self) -> Self:
+        if self.direct_windows is not None and self.model_fields_set & {
+            "windows_per_proxy",
+            "max_windows",
+        }:
+            raise ValueError(
+                "direct_windows cannot be combined with windows_per_proxy or max_windows"
+            )
+        return self
 
 
 def create_app(
@@ -329,7 +158,18 @@ def create_app(
 
     @application.exception_handler(RequestValidationError)
     async def validation_error(_: Request, error: RequestValidationError) -> JSONResponse:
-        return JSONResponse(status_code=400, content={"detail": jsonable_encoder(error.errors())})
+        detail = []
+        for issue in error.errors():
+            location = issue["loc"]
+            field = location[1] if len(location) > 1 else None
+            detail.append(
+                {
+                    "loc": ["body", field] if field in LaunchRequest.model_fields else ["body"],
+                    "msg": issue["msg"],
+                    "type": issue["type"],
+                }
+            )
+        return JSONResponse(status_code=400, content={"detail": detail})
 
     @application.get("/", include_in_schema=False)
     async def root() -> RedirectResponse:
@@ -372,13 +212,11 @@ def create_app(
         body = bytearray()
         try:
             async for chunk in request.stream():
-                body.extend(chunk)
-                if len(body) > MAX_PROXY_REQUEST_BYTES:
+                if len(body) + len(chunk) > MAX_PROXY_REQUEST_BYTES:
                     raise HTTPException(status_code=400, detail="Request body is too large")
+                body.extend(chunk)
             payload = json.loads(body)
-        except HTTPException:
-            raise
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
             raise HTTPException(status_code=400, detail="Malformed JSON request") from error
 
         allowed_fields = {"proxies", "confirm_clear"}
@@ -422,13 +260,20 @@ def create_app(
     @application.post("/browsers")
     async def launch_browsers(request: LaunchRequest) -> dict[str, int]:
         try:
-            async with proxy_file_lock:
-                proxies = load_proxies(proxy_file)
+            connections: Sequence[ProxySettings | None]
+            if request.direct_windows is not None:
+                connections = (None,)
+                window_count = request.direct_windows
+            else:
+                async with proxy_file_lock:
+                    connections = load_proxies(proxy_file)
+                window_count = request.windows_per_proxy
             launched = await manager.launch(
-                proxies,
-                request.windows_per_proxy,
+                connections,
+                window_count,
                 url=request.url,
                 max_windows=request.max_windows,
+                chrome_profiles=request.chrome_profiles,
             )
         except (ProxyFileError, BrowserLaunchError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -450,3 +295,6 @@ def create_app(
 
 
 app = create_app()
+app.add_middleware(
+    TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"], www_redirect=False
+)
